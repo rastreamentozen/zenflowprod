@@ -1,0 +1,919 @@
+<script>
+    // =======================================================================
+    // VARIÁVEIS GLOBAIS E ESTADOS
+    // =======================================================================
+    let cacheFilaBase = [], cacheFilaFiltrada = [], cacheLogsBase = { colunas: [], linhas: [], isHtml: false }, cacheLoteParsed = [];
+    let colunaOrdenacao = 'etapaNum', ordemAscendente = true, currentPage = 1, rowsPerPage = 50, selectionSet = new Set(); 
+    let currentLogPage = 1, rowsPerLogPage = 50, cacheLogsFiltrados = [];
+    let cacheFilaCancBase = [], cacheFilaCancFiltrada = [], selectionSetCanc = new Set();
+
+    function dispararEmailBackendPromise(grupo, responsavel) { return new Promise((resolve, reject) => { google.script.run.withSuccessHandler(res => resolve(res)).withFailureHandler(err => reject(err)).dispararEmailAgrupadoWeb([grupo], responsavel); }); }
+
+    // =======================================================================
+    // UTILITÁRIOS E UI
+    // =======================================================================
+    function formatarMoedaBRL(valor) { if (!valor) return 'Sem FIPE'; let str = String(valor).replace(/R\$\s?/gi, '').trim(); if (str === '') return 'Sem FIPE'; if (str.indexOf(',') > -1) { str = str.replace(/\./g, '').replace(',', '.'); } let num = parseFloat(str); if (isNaN(num)) return '💰 R$ ' + String(valor).replace(/R\$\s?/gi, '').trim(); return '💰 R$ ' + new Intl.NumberFormat('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(num); }
+    function gerarLinkWhats(telefone, mensagem) { if (!telefone) return `<span class="text-slate-400 text-[10px] italic">Sem Whats</span>`; const num = String(telefone).replace(/\D/g, ''); const msg = encodeURIComponent(mensagem || ""); return `<a href="https://wa.me/55${num}?text=${msg}" target="_blank" class="text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 font-bold text-[11px] flex items-center gap-1 mt-1 transition"><span class="text-sm">💬</span> WhatsApp</a>`; }
+    function getTimestamp(dataStr) { if (!dataStr || dataStr === "Aguardando..." || dataStr === "") return 0; const partes = dataStr.split(" "), d = partes[0].split("/"), t = partes[1] ? partes[1].split(":") : [0, 0]; return new Date(d[2], d[1] - 1, d[0], t[0] || 0, t[1] || 0).getTime(); }
+    function abrirNovaAba(view) { if(APP_URL && APP_URL !== "") window.open(APP_URL + "?view=" + view, "_blank"); else aviso("⚠️ Erro: Acesse pelo link oficial."); }
+    function toggleMenu(id, event) { event.stopPropagation(); const menu = document.getElementById(id); const isHidden = menu.classList.contains('hidden'); document.querySelectorAll('.menu-flutuante').forEach(el => el.classList.add('hidden')); if (isHidden) menu.classList.remove('hidden'); }
+    document.addEventListener('click', () => { document.querySelectorAll('.menu-flutuante').forEach(el => el.classList.add('hidden')); });
+    function toggleDarkMode() { document.documentElement.classList.toggle('dark'); const isDark = document.documentElement.classList.contains('dark'); localStorage.setItem('theme', isDark ? 'dark' : 'light'); document.getElementById('theme-icon').innerText = isDark ? '☀️' : '🌙'; }
+    function aviso(texto, tempo = 5000, isHtml = false) { const el = document.getElementById("toast"); if (isHtml) el.innerHTML = texto; else el.innerText = texto; el.classList.remove("hidden"); if (tempo > 0) setTimeout(() => el.classList.add("hidden"), tempo); }
+
+    function imprimirTabela(titulo, cabecalhos, linhasHTML) {
+       const w = window.open('', '_blank');
+       const htmlContent = '<!DOCTYPE html><html><head><title>Relatório - ' + titulo + '</title><style>body { padding: 20px; font-family: sans-serif; background: white; color: black; } @media print { body { padding: 0; } @page { margin: 1cm; size: landscape; } } table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 11px; text-align: left; } th, td { border: 1px solid #ccc; padding: 6px 10px; } th { background-color: #f1f5f9; font-weight: bold; color: #334155; text-transform: uppercase; font-size: 10px; } td { vertical-align: top; } h1 { font-size: 20px; font-weight: bold; margin-bottom: 4px; } p { color: #666; font-size: 12px; margin-bottom: 20px; }</style></head><body><h1>Relatório Operacional: ' + titulo + '</h1><p>Gerado em: ' + new Date().toLocaleString('pt-BR') + '</p><table><thead><tr>' + cabecalhos.map(c => '<th>' + c + '</th>').join('') + '</tr></thead><tbody>' + linhasHTML + '</tbody></table></body></html>';
+       w.document.write(htmlContent); w.document.close(); w.setTimeout(function() { w.print(); w.close(); }, 800);
+    }
+
+    function dispararImpressaoFila() {
+       if (cacheFilaFiltrada.length === 0) return aviso("⚠️ Nenhum dado na tabela para imprimir.");
+       const cabecalhos = ["Etapa", "Cliente", "Veículo / FIPE", "Data Entrada", "Data Envio", "Contato", "Localização", "Fipe Baixa", "Resp. Email", "Resp. Whats"];
+       const linhasHTML = cacheFilaFiltrada.map(cli => { let fipeDisplay = formatarMoedaBRL(cli.fipe).replace('💰 ', ''); let veiculoDisplay = cli.placa ? cli.placa : (cli.chassi ? cli.chassi : "-"); return '<tr><td style="text-align:center; font-weight:bold;">' + (cli.etapaNum === 1 ? "Boas Vindas" : cli.etapaNum === 2 ? "Alerta 5d" : "Prazo Exp") + '</td><td style="font-weight:bold;">' + (cli.nome || "-") + '</td><td>' + veiculoDisplay + '<br><span style="color:#10b981; font-weight:bold;">' + fipeDisplay + '</span></td><td>' + cli.dataPlanilha + '</td><td>' + (cli.dataEmail || "Aguardando...") + '</td><td>' + (cli.email || "-") + '<br>' + (cli.telefone || "-") + '</td><td><b>' + (cli.estado || "N/A") + '</b><br><span>' + (cli.cidade || "") + '</span></td><td style="text-align:center; ' + (cli.isFipeBaixa ? 'color:red; font-weight:bold;' : '') + '">' + (cli.isFipeBaixa ? 'SIM' : 'NÃO') + '</td><td style="text-align:center; ' + (cli.isRespondeuEmail ? 'color:green; font-weight:bold;' : '') + '">' + (cli.isRespondeuEmail ? 'SIM' : 'NÃO') + '</td><td style="text-align:center; ' + (cli.isRespondeuWhats ? 'color:green; font-weight:bold;' : '') + '">' + (cli.isRespondeuWhats ? 'SIM' : 'NÃO') + '</td></tr>'; }).join('');
+       imprimirTabela("Fila Unificada", cabecalhos, linhasHTML);
+    }
+
+    function dispararImpressaoLogs() {
+       if (!cacheLogsFiltrados || cacheLogsFiltrados.length === 0) return aviso("⚠️ Nenhum log para imprimir.");
+       const linhasHTML = cacheLogsFiltrados.map(l => '<tr>' + l.htmlArr.map(cel => '<td>' + cel + '</td>').join('') + '</tr>').join('');
+       imprimirTabela("Central de Logs Unificada", cacheLogsBase.colunas, linhasHTML);
+    }
+
+    function alternarTelas(telaIdAlvo) { ['tela-dashboard', 'tela-etapa', 'tela-cancelamento', 'tela-ferramentas', 'tela-config', 'tela-logs', 'tela-cadastro', 'tela-tecnicos', 'tela-manual', 'tela-usuarios'].forEach(id => { const el = document.getElementById(id); if(!el) return; if (id === telaIdAlvo) { el.classList.remove('hidden'); el.classList.add('flex'); } else { el.classList.add('hidden'); el.classList.remove('flex'); } }); }
+    function navegar(telaIdAlvo, btnElement) { if(btnElement) { document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active')); btnElement.classList.add('active'); } alternarTelas(telaIdAlvo); if(telaIdAlvo === 'tela-dashboard') carregarDashboard(); if(telaIdAlvo === 'tela-logs') carregarDadosDoLog(); if(telaIdAlvo === 'tela-config') carregarConfigs(); if(telaIdAlvo === 'tela-tecnicos') carregarTecnicos(); if(telaIdAlvo === 'tela-usuarios') carregarUsuarios(); }
+    function navegarFila(btnElement) { document.getElementById('filtroFila').value = "pendentes"; document.getElementById('filtroEtapa').value = "todas"; document.getElementById('filtroTrava').value = "todos"; colunaOrdenacao = 'etapaNum'; ordemAscendente = true; selectionSet.clear(); contarChecksGlobais(); navegar('tela-etapa', btnElement); carregarFilaGeral(); }
+
+    // =======================================================================
+    // MOTOR DE CANCELAMENTOS E AUTOMAÇÕES EM LOTE
+    // =======================================================================
+    const BADGES_SGA = {
+      "CANCELADO": { txt: "CANCELADO", css: "bg-rose-100 text-rose-800 border-rose-300 dark:bg-rose-900/50 dark:text-rose-300" },
+      "CANCELADO COM RASTREADOR": { txt: "CANC. C/ RASTREADOR", css: "bg-red-100 text-red-800 border-red-300 dark:bg-red-900/50 dark:text-red-300" },
+      "CANCELAMENTO PENDENTE": { txt: "CANC. PENDENTE", css: "bg-orange-100 text-orange-800 border-orange-300 dark:bg-orange-900/50 dark:text-orange-300" },
+      "DESLIGADO DO CORPO ASSOCIATIVO": { txt: "DESLIGADO", css: "bg-slate-200 text-slate-800 border-slate-400 dark:bg-slate-700 dark:text-slate-300" },
+      "INATIVO": { txt: "INATIVO", css: "bg-purple-100 text-purple-800 border-purple-300 dark:bg-purple-900/50 dark:text-purple-300" },
+      "INATIVOS COM RASTREADOR": { txt: "INATIVO C/ RAST", css: "bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300 dark:bg-fuchsia-900/50 dark:text-fuchsia-300" },
+      "INATIVOS SEM RASTREADOR": { txt: "INATIVO S/ RAST", css: "bg-violet-100 text-violet-800 border-violet-300 dark:bg-violet-900/50 dark:text-violet-300" },
+      "INADIMPLENTE": { txt: "INADIMPLENTE", css: "bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/50 dark:text-yellow-300" },
+      "AGUARDANDO INDENIZAÇÃO": { txt: "AGUARD. INDENIZAÇÃO", css: "bg-sky-100 text-sky-800 border-sky-300 dark:bg-sky-900/50 dark:text-sky-300" },
+      "INDENIZADO": { txt: "INDENIZADO", css: "bg-cyan-100 text-cyan-800 border-cyan-300 dark:bg-cyan-900/50 dark:text-cyan-300" },
+      "NEGADO": { txt: "NEGADO", css: "bg-gray-100 text-gray-800 border-gray-300 dark:bg-gray-700 dark:text-gray-300" }
+    };
+
+    function navegarCancelamento(btnElement) { 
+      document.querySelectorAll('.nav-btn').forEach(el => el.classList.remove('active')); 
+      btnElement.classList.add('active'); 
+      alternarTelas('tela-cancelamento'); 
+      selectionSetCanc.clear(); 
+      document.getElementById('contadorSelCanc').innerText = 0;
+      carregarFilaCancelamento(); 
+    }
+
+    function acionarMigracaoInativos() {
+      if(!confirm("Deseja puxar os clientes inativos da aba '6-Situação'? A inteligência organizará todos os clientes não ativos para o formato Web.")) return;
+      aviso("⏳ Varredura interna iniciada. Isso leva apenas alguns segundos...", 120000);
+      google.script.run.withSuccessHandler(res => {
+         aviso(res, 10000);
+         carregarFilaCancelamento();
+      }).withFailureHandler(err => {
+         aviso("❌ Erro ao migrar: " + err.message, 8000);
+      }).web_migrarInativosParaCancelamento();
+    }
+
+    function carregarFilaCancelamento() {
+      document.getElementById('loading-canc').classList.remove('hidden'); 
+      document.getElementById('tabela-canc').classList.add('hidden');
+      google.script.run.withSuccessHandler(dados => { 
+        document.getElementById('loading-canc').classList.add('hidden'); 
+        if (dados && dados.erro) return aviso("❌ " + dados.erro, 10000); 
+        cacheFilaCancBase = dados; 
+        aplicarFiltrosCancelamento(); 
+      }).web_obterFilaCancelamento();
+    }
+
+    function aplicarFiltrosCancelamento() {
+      const ipt = document.getElementById('ipt-busca-canc');
+      const termo = ipt ? ipt.value.toLowerCase().trim() : "";
+      const fStatus = document.getElementById('filtroStatusCanc') ? document.getElementById('filtroStatusCanc').value : 'alvos';
+      
+      cacheFilaCancFiltrada = cacheFilaCancBase.filter(c => {
+        const sit = String(c.codSituacao).toUpperCase();
+        
+        if (fStatus === 'alvos') {
+           if (sit !== "CANCELADO" && sit !== "CANCELAMENTO PENDENTE") return false;
+        }
+        
+        if (termo !== "") {
+           const n = String(c.nome || "").toLowerCase();
+           const p = String(c.placa || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+           const ch = String(c.chassi || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+           if (!n.includes(termo) && !p.includes(termo.replace(/[^a-z0-9]/g, '')) && !ch.includes(termo) && !sit.toLowerCase().includes(termo)) {
+             return false;
+           }
+        }
+        return true;
+      });
+      desenharTabelaCancelamento();
+    }
+
+    function desenharTabelaCancelamento() {
+      const corpo = document.getElementById('corpo-canc'); corpo.innerHTML = ""; 
+      const total = cacheFilaCancFiltrada.length;
+      if(total === 0) { 
+          corpo.innerHTML = `<tr><td colspan="7" class="px-6 py-16 text-center text-slate-500 font-bold text-lg">A fila de cancelamentos está vazia ou nenhum cliente atende à busca. Clique em "Puxar Inativos da Fila".</td></tr>`; 
+          document.getElementById('tabela-canc').classList.remove('hidden'); return; 
+      } 
+      
+      cacheFilaCancFiltrada.forEach((cli) => {
+        let sitTextOriginal = String(cli.codSituacao).toUpperCase();
+        let sitDef = BADGES_SGA[sitTextOriginal];
+        if (!sitDef) {
+           const chaves = Object.keys(BADGES_SGA);
+           for(let k of chaves) { if(sitTextOriginal.includes(k)) { sitDef = BADGES_SGA[k]; break; } }
+        }
+        if (!sitDef) sitDef = { txt: sitTextOriginal, css: "bg-slate-100 border-slate-300 text-slate-600" };
+
+        let badgeSGA = `<span class="px-2 py-1 rounded text-[10px] font-black uppercase border ${sitDef.css} shadow-sm inline-flex items-center gap-1 mt-1 block w-max">${sitDef.txt}</span>`;
+        let badgeEtapa = cli.etapaNum === 1 ? `<div class="text-center text-xl cursor-help transform hover:scale-110 transition drop-shadow-sm" title="Originalmente na Etapa 1">🔰</div>` : cli.etapaNum === 2 ? `<div class="text-center text-xl cursor-help transform hover:scale-110 transition drop-shadow-sm" title="Originalmente na Etapa 2">⚠️</div>` : `<div class="text-center text-xl cursor-help transform hover:scale-110 transition drop-shadow-sm" title="Originalmente na Etapa 3">⛔</div>`;
+
+        let cNC = "text-slate-800 dark:text-slate-100";
+        let nomeHtml = `<div class="truncate max-w-[200px] font-bold ${cNC}" title="${cli.nome}">${cli.nome || "-"}</div>${badgeSGA}`;
+
+        let fD = formatarMoedaBRL(cli.fipe);
+        let vD = cli.placa ? cli.placa : (cli.chassi ? cli.chassi : "-");
+        let veiculoHtml = `${vD}<br><span class="text-[11px] bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2 py-0.5 rounded-md font-black mt-1 block w-max text-slate-800 dark:text-slate-200 shadow-sm">${fD}</span>`;
+        
+        let htmlDisparos = `<div class="flex items-center justify-center gap-2">`; 
+        let tD = false;
+        if (cli.isEnviado) { htmlDisparos += `<span class="text-[17px] cursor-help hover:scale-125 transition drop-shadow-sm" title="📧 E-mail:\n${cli.dataEmail || ''}">📧</span>`; tD = true; }
+        if (cli.isWhatsEnviado) { htmlDisparos += `<span class="text-[17px] cursor-help hover:scale-125 transition drop-shadow-sm" title="💬 Whats:\n${cli.dataWhats || ''}">💬</span>`; tD = true; }
+        if (!tD) { htmlDisparos += `<span class="text-slate-400 italic text-[10px] font-medium border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md">Pendente</span>`; } 
+        htmlDisparos += `</div>`;
+
+        let tooltipEnd = `Cidade: ${cli.cidade || 'N/A'}\nBairro: ${cli.bairro || 'N/A'}`;
+        let htmlLocalizacao = `<div class="cursor-help font-black text-[13px] whitespace-nowrap text-slate-700 dark:text-slate-300" title="${tooltipEnd}">📍 ${cli.estado || "N/A"}</div>`;
+
+        let fE = cli.email || "-";
+        let contatoHtml = `${fE}<br>${gerarLinkWhats(cli.telefone, cli.mensagemWhatsApp)}`;
+
+        const isAlvoPermitido = (sitTextOriginal === "CANCELADO" || sitTextOriginal === "CANCELAMENTO PENDENTE");
+        const jaEnviouTudo = (cli.isEnviado && cli.isWhatsEnviado);
+        const disableCheck = (!isAlvoPermitido || jaEnviouTudo);
+        const tooltipCheck = !isAlvoPermitido ? "Apenas Cancelados (6) e Pendentes (17) podem receber comunicação." : "";
+        const isChecked = selectionSetCanc.has(cli.idUnico) ? "checked" : "";
+        const rowCls = jaEnviouTudo ? "bg-slate-50 dark:bg-slate-800/40 opacity-60 grayscale-[30%]" : "hover:bg-rose-50 dark:hover:bg-slate-700/50 bg-white dark:bg-darkcard table-row-anim transition";
+
+        corpo.innerHTML += `<tr class="${rowCls} border-b border-slate-100 dark:border-slate-800/60">
+            <td class="py-2 px-3 text-center border-r border-slate-100 dark:border-slate-700/30 print:hidden"><input type="checkbox" data-id="${cli.idUnico}" onchange="updateSelCanc(this)" class="chk-canc w-4 h-4 rounded text-rose-600 dark:bg-slate-700 dark:border-slate-600 cursor-pointer focus:ring-rose-500 disabled:opacity-50 disabled:cursor-not-allowed" ${disableCheck ? "disabled" : ""} ${isChecked} title="${tooltipCheck}"></td>
+            <td class="py-2 px-3 text-center border-r border-slate-100 dark:border-slate-700/30 align-middle">${badgeEtapa}</td>
+            <td class="py-2 px-4 align-middle">${nomeHtml}</td>
+            <td class="py-2 px-4 font-mono font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap align-middle">${veiculoHtml}</td>
+            <td class="py-2 px-4 whitespace-nowrap align-middle text-center">${htmlDisparos}</td>
+            <td class="py-2 px-4 whitespace-nowrap text-xs align-middle">${contatoHtml}</td>
+            <td class="py-2 px-4 bg-amber-50/50 dark:bg-amber-900/10 border-l border-amber-100/50 dark:border-amber-900/20 align-middle">${htmlLocalizacao}</td>
+        </tr>`;
+      });
+      document.getElementById('tabela-canc').classList.remove('hidden');
+    }
+
+    function updateSelCanc(chk) { const val = chk.getAttribute('data-id'); if (chk.checked) selectionSetCanc.add(val); else selectionSetCanc.delete(val); document.getElementById('contadorSelCanc').innerText = selectionSetCanc.size; }
+    function marcarTodosCancelamento(m) { document.querySelectorAll('.chk-canc:not([disabled])').forEach(c => { c.checked = m.checked; const val = c.getAttribute('data-id'); if (m.checked) selectionSetCanc.add(val); else selectionSetCanc.delete(val); }); document.getElementById('contadorSelCanc').innerText = selectionSetCanc.size; }
+
+    function dispararLoteCancelamento() {
+      const alvos = cacheFilaCancBase.filter(c => selectionSetCanc.has(c.idUnico));
+      if(alvos.length === 0) return aviso('⚠️ Marque os clientes de cancelamento primeiro.');
+      
+      const resp = document.getElementById('selectResponsavelFila') ? document.getElementById('selectResponsavelFila').value : "Sistema"; 
+      const grupos = [];
+      alvos.forEach(cli => {
+        if(!cli.email) return;
+        grupos.push({
+           email: cli.email, nome: cli.nome, telefone: cli.telefone, fipe: cli.fipe, etapaNum: "CANCELAMENTO", veiculos: [cli.placa || cli.chassi], veiculosStr: cli.placa || cli.chassi, linhas: [cli], isErroEmail: false, isEnviado: cli.isEnviado
+        });
+      });
+      
+      if(grupos.length === 0) return aviso("⚠️ Selecionados não possuem E-mail válido.");
+      window.gruposParaEnvio = grupos; window.respParaEnvio = resp;
+      aviso("⏳ Analisando regras de Cancelamento...", 60000);
+      
+      google.script.run.withSuccessHandler(renderizarModalPreview).obterPreviewDisparoAgrupadoWeb(grupos);
+    }
+
+    async function rodarAutomacaoCanc(comando) {
+      const alvos = cacheFilaCancBase.filter(c => selectionSetCanc.has(c.idUnico));
+      if(alvos.length === 0) return aviso('⚠️ Selecione os clientes marcando a caixinha.');
+      
+      const mod = document.getElementById('modal-progresso'), bar = document.getElementById('barra-progresso'), cnt = document.getElementById('contador-progresso'), pct = document.getElementById('percentual-progresso'), dsc = document.getElementById('desc-progresso');
+      mod.classList.remove('hidden'); bar.style.width = '0%'; cnt.innerText = `0 / ${alvos.length}`; pct.innerText = '0%'; dsc.innerText = 'Comunicando com API SGA...';
+      let suc = 0, err = 0;
+      for (let i = 0; i < alvos.length; i++) {
+        dsc.innerText = `Baixando dados: ${alvos[i].nome || alvos[i].placa}`;
+        try { 
+           const res = await new Promise((resolve, reject) => { google.script.run.withSuccessHandler(resolve).withFailureHandler(reject).web_completarItemCancelamento(alvos[i].idUnico); });
+           if (res.status === 'ok') suc++; else err++; 
+        } catch (e) { err++; }
+        const p = Math.round(((i + 1) / alvos.length) * 100); bar.style.width = `${p}%`; cnt.innerText = `${i + 1} / ${alvos.length}`; pct.innerText = `${p}%`;
+      }
+      dsc.innerText = 'Finalizando...'; setTimeout(() => { mod.classList.add('hidden'); aviso(`✅ Atualização Concluída!\n${suc} completados.\n${err} ignorados/erros.`, 8000); selectionSetCanc.clear(); document.getElementById('contadorSelCanc').innerText = 0; carregarFilaCancelamento(); }, 800);
+    }
+
+    // =======================================================================
+    // DASHBOARD BI
+    // =======================================================================
+    function carregarDashboard() {
+      document.getElementById('loading-dash').classList.remove('hidden');
+      google.script.run.withSuccessHandler(stats => {
+        document.getElementById('loading-dash').classList.add('hidden'); 
+        if(stats && stats.erro) return aviso("Aviso BI: " + stats.erro); 
+        window.currentStats = stats; 
+        
+        const setText = (id, valor) => { const el = document.getElementById(id); if(el) el.innerText = valor; };
+        setText('kpi-pendentes', stats.kpis.pendentesTotal); setText('kpi-pend-e1', stats.kpis.pendentesEtapa['1']); setText('kpi-pend-e2', stats.kpis.pendentesEtapa['2']); setText('kpi-pend-e3', stats.kpis.pendentesEtapa['3']);
+        setText('kpi-email-total', stats.kpis.emails.total); setText('kpi-email-hoje', stats.kpis.emails.hoje); setText('kpi-email-sem', stats.kpis.emails.semana); setText('kpi-email-mes', stats.kpis.emails.mes);
+        setText('kpi-whats-total', stats.kpis.whats.total); setText('kpi-whats-hoje', stats.kpis.whats.hoje); setText('kpi-whats-sem', stats.kpis.whats.semana); setText('kpi-whats-mes', stats.kpis.whats.mes);
+        setText('kpi-concluidos', stats.kpis.conclusaoTotal); setText('kpi-conc-e1', stats.kpis.conclusaoEtapa['1']); setText('kpi-conc-e2', stats.kpis.conclusaoEtapa['2']); setText('kpi-conc-e3', stats.kpis.conclusaoEtapa['3']);
+        
+        const isDark = document.documentElement.classList.contains('dark'), gridColor = isDark ? '#334155' : '#e2e8f0', textColor = isDark ? '#94a3b8' : '#64748b'; 
+        Chart.defaults.color = textColor; Chart.defaults.borderColor = gridColor;
+        
+        const labelsHist = Object.keys(stats.graficos.historicoMensal).sort((a,b) => stats.graficos.historicoMensal[a].sortKey - stats.graficos.historicoMensal[b].sortKey); 
+        const buildChart = (id, chartVar, config) => { const ctx = document.getElementById(id); if(ctx) { if(window[chartVar]) window[chartVar].destroy(); window[chartVar] = new Chart(ctx.getContext('2d'), config); } };
+
+        buildChart('chartHistorico', 'cHistorico', { type: 'line', data: { labels: labelsHist, datasets: [{ label: 'E-mails', data: labelsHist.map(k => stats.graficos.historicoMensal[k].email), borderColor: '#3b82f6', backgroundColor: 'rgba(59, 130, 246, 0.1)', borderWidth: 3, fill: true, tension: 0.4 },{ label: 'WhatsApps', data: labelsHist.map(k => stats.graficos.historicoMensal[k].whats), borderColor: '#10b981', backgroundColor: 'rgba(16, 185, 129, 0.1)', borderWidth: 3, fill: true, tension: 0.4 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true, grid: { color: gridColor } }, x: { grid: { display: false } } } } });
+        buildChart('chartEnviosEtapa', 'cEnviosEtapa', { type: 'bar', data: { labels: ['E1 (Boas Vindas)', 'E2 (Alerta 5D)', 'E3 (Expirado)'], datasets: [{ label: 'E-mails', data: [stats.kpis.emails.etapa['1'], stats.kpis.emails.etapa['2'], stats.kpis.emails.etapa['3']], backgroundColor: '#3b82f6', borderRadius: 4 },{ label: 'WhatsApps', data: [stats.kpis.whats.etapa['1'], stats.kpis.whats.etapa['2'], stats.kpis.whats.etapa['3']], backgroundColor: '#10b981', borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'top' } }, scales: { y: { beginAtZero: true, grid: { color: gridColor } }, x: { grid: { display: false } } } } });
+        buildChart('chartPendentes', 'cPendentes', { type: 'doughnut', data: { labels: ['E1 (Boas Vindas)', 'E2 (Alerta 5D)', 'E3 (Expirado)'], datasets: [{ data: [stats.kpis.pendentesEtapa['1'], stats.kpis.pendentesEtapa['2'], stats.kpis.pendentesEtapa['3']], backgroundColor: ['#6366f1', '#f59e0b', '#f43f5e'], borderWidth: 0, hoverOffset: 4 }] }, options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { position: 'bottom' } } } });
+        buildChart('chartConclusao', 'cConclusao', { type: 'pie', data: { labels: ['E1 (Boas Vindas)', 'E2 (Alerta 5D)', 'E3 (Expirado)'], datasets: [{ data: [stats.kpis.conclusaoEtapa['1'], stats.kpis.conclusaoEtapa['2'], stats.kpis.conclusaoEtapa['3']], backgroundColor: ['#8b5cf6', '#0ea5e9', '#ec4899'], borderWidth: 0, hoverOffset: 4 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } } });
+        buildChart('chartEquipe', 'cEquipe', { type: 'bar', data: { labels: Object.keys(stats.graficos.equipeMes), datasets: [{ data: Object.values(stats.graficos.equipeMes), backgroundColor: '#64748b', borderRadius: 4 }] }, options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { grid: { color: gridColor } }, x: { grid: { display: false } } } } });
+      }).solicitarDadosWeb('dashboard');
+    }
+
+    function gerarApresentacaoSlides() {
+      aviso("⏳ Capturando gráficos e gerando Google Slides...", 60000);
+      const graficosParaExportar = [];
+      const pushGrafico = (id, titulo) => { const el = document.getElementById(id); if (el) graficosParaExportar.push({ titulo: titulo, base64: el.toDataURL('image/png') }); };
+      pushGrafico('chartHistorico', 'Evolução Mensal'); pushGrafico('chartEnviosEtapa', 'Envios por Etapa'); pushGrafico('chartPendentes', 'Veículos Pendentes'); pushGrafico('chartEquipe', 'Desempenho de Equipe');
+      google.script.run.withSuccessHandler(res => { if(res.erro) return aviso("❌ Erro ao gerar slides: " + res.erro); aviso(`✅ Apresentação gerada!`, 5000); window.open(res.url, '_blank'); }).exportarDashboardParaSlidesWeb(graficosParaExportar, window.currentStats);
+    }
+
+    // =======================================================================
+    // FILA GERAL E MIGRACAO DE ETAPAS (SLA INTELIGENTE)
+    // =======================================================================
+    function carregarFilaGeral() {
+      document.getElementById('loading-fila').classList.remove('hidden'); document.getElementById('tabela-fila').classList.add('hidden'); document.getElementById('paginacaoBox').classList.add('hidden');
+      google.script.run.withSuccessHandler(dados => { if (dados && dados.erro) { document.getElementById('loading-fila').classList.add('hidden'); aviso("❌ " + dados.erro, 10000); return; } cacheFilaBase = dados; aplicarFiltrosEOrdenacao(); }).withFailureHandler(erro => { document.getElementById('loading-fila').classList.add('hidden'); aviso("❌ Erro Crítico: " + erro.message, 10000); }).solicitarDadosWeb('filaGeral');
+    }
+
+    function setSort(coluna) { if (colunaOrdenacao === coluna) ordemAscendente = !ordemAscendente; else { colunaOrdenacao = coluna; ordemAscendente = true; } document.querySelectorAll('.sort-icon').forEach(icon => { icon.innerHTML = ""; icon.parentElement.classList.remove('sort-active'); }); const ativo = document.getElementById(`sort-${coluna}`); if(ativo) { ativo.innerHTML = ordemAscendente ? "▲" : "▼"; ativo.parentElement.classList.add('sort-active'); } aplicarFiltrosEOrdenacao(); }
+    
+    function aplicarFiltrosEOrdenacao() {
+      const fS = document.getElementById('filtroFila') ? document.getElementById('filtroFila').value : "pendentes";
+      const fE = document.getElementById('filtroEtapa') ? document.getElementById('filtroEtapa').value : "todas";
+      const fT = document.getElementById('filtroTrava') ? document.getElementById('filtroTrava').value : "todos";
+      
+      const iptBusca = document.getElementById('ipt-busca-fila');
+      const termoBusca = iptBusca ? iptBusca.value.toLowerCase().trim() : "";
+      const termoBuscaLimpo = termoBusca.replace(/[^a-z0-9]/g, '');
+
+      cacheFilaFiltrada = cacheFilaBase.filter(c => {
+        if (fE !== "todas" && String(c.etapaNum) !== fE) return false;
+        if (fT === "livres" && c.isTecnicoIndisp) return false;
+        if (fT === "travados" && !c.isTecnicoIndisp) return false;
+        if (fS === "pendentes") { if (c.isEnviado || c.isErroEmail || c.isInativo) return false; } 
+        else if (fS === "erros") { if (!c.isErroEmail) return false; } 
+        else if (fS === "inativos") { if (!c.isInativo) return false; } 
+        else if (fS === "enviados") { if (!c.isEnviado) return false; }
+
+        if (termoBusca !== "") {
+           const nomeStr = String(c.nome || "").toLowerCase();
+           const placaLimpa = String(c.placa || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+           const chassiLimpo = String(c.chassi || "").toLowerCase().replace(/[^a-z0-9]/g, '');
+           if (!nomeStr.includes(termoBusca) && !placaLimpa.includes(termoBuscaLimpo) && !chassiLimpo.includes(termoBuscaLimpo)) return false;
+        }
+        return true;
+      });
+
+      cacheFilaFiltrada.sort((a, b) => { 
+        if (colunaOrdenacao === 'dataPlanilha') return ordemAscendente ? getTimestamp(a.dataPlanilha) - getTimestamp(b.dataPlanilha) : getTimestamp(b.dataPlanilha) - getTimestamp(a.dataPlanilha); 
+        if (colunaOrdenacao === 'etapaNum') return ordemAscendente ? a.etapaNum - b.etapaNum : b.etapaNum - a.etapaNum; 
+        let valA = (a[colunaOrdenacao] || "").toString().toLowerCase(), valB = (b[colunaOrdenacao] || "").toString().toLowerCase(); 
+        if (valA < valB) return ordemAscendente ? -1 : 1; 
+        if (valA > valB) return ordemAscendente ? 1 : -1; 
+        return 0; 
+      });
+      currentPage = 1; desenharTabelaFila();
+    }
+
+    function mudarPaginacao() { rowsPerPage = document.getElementById('selectRowsPerPage').value; currentPage = 1; desenharTabelaFila(); }
+    function prevPage() { if (currentPage > 1) { currentPage--; desenharTabelaFila(); } }
+    function nextPage() { const limit = rowsPerPage === 'todos' ? cacheFilaFiltrada.length : parseInt(rowsPerPage); if (currentPage * limit < cacheFilaFiltrada.length) { currentPage++; desenharTabelaFila(); } }
+    function atualizarBoxPaginacao(s, e, t) { document.getElementById('paginacaoBox').classList.remove('hidden'); document.getElementById('pageInfo').innerText = `Mostrando ${t === 0 ? 0 : s + 1} a ${e} de ${t}`; document.getElementById('btnPrev').disabled = currentPage === 1; const l = rowsPerPage === 'todos' ? t : parseInt(rowsPerPage); document.getElementById('btnNext').disabled = currentPage * l >= t; }
+    
+    function criarToggle(campo, idUnico, chk, cor) { return `<div class="relative inline-block w-10 align-middle transition print:hidden"><input type="checkbox" onchange="salvarMarcacao('${idUnico}', '${campo}', this.checked)" ${chk ? "checked" : ""} class="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-2 cursor-pointer"/><label class="toggle-label block h-5 rounded-full ${chk ? cor : 'bg-slate-300'} cursor-pointer"></label></div><span class="hidden print:inline-block font-bold">${chk ? 'SIM' : 'NÃO'}</span>`; }
+
+    function salvarMarcacao(idUnico, campo, valorBooleano) {
+      const lastDash = idUnico.lastIndexOf('-'); if (lastDash === -1) return; const abaNome = idUnico.substring(0, lastDash), linha = parseInt(idUnico.substring(lastDash + 1));
+      const cli = cacheFilaBase.find(c => c.idUnico === idUnico); if (cli) { if (campo === 'fipeBaixa') cli.isFipeBaixa = valorBooleano; if (campo === 'tecnicoIndisp') cli.isTecnicoIndisp = valorBooleano; if (campo === 'respEmail') cli.isRespondeuEmail = valorBooleano; if (campo === 'respWhats') cli.isRespondeuWhats = valorBooleano; }
+      aviso("⏳ Sincronizando...", 2000); google.script.run.withSuccessHandler(res => { aviso(res, 3000); aplicarFiltrosEOrdenacao(); }).withFailureHandler(err => aviso("❌ Erro: " + err.message, 5000)).atualizarMarcacaoWeb(abaNome, linha, campo, valorBooleano);
+    }
+
+    function abrirModalEdicaoCliente(idUnico) {
+      const cli = cacheFilaBase.find(c => c.idUnico === idUnico); if(!cli) return;
+      document.getElementById('ipt-edit-idUnico').value = idUnico; document.getElementById('ipt-edit-nome').value = cli.nome || ""; document.getElementById('ipt-edit-placa').value = cli.placa || ""; document.getElementById('ipt-edit-chassi').value = cli.chassi || ""; document.getElementById('ipt-edit-email').value = cli.email || ""; document.getElementById('ipt-edit-telefone').value = cli.telefone || ""; document.getElementById('ipt-edit-fipe').value = cli.fipe || ""; document.getElementById('modal-edicao-cliente').classList.remove('hidden');
+    }
+    function fecharModalEdicaoCliente() { document.getElementById('modal-edicao-cliente').classList.add('hidden'); }
+    function salvarEdicaoCliente() {
+      const idUnico = document.getElementById('ipt-edit-idUnico').value; const cli = cacheFilaBase.find(c => c.idUnico === idUnico); if(!cli) return;
+      const payload = { nome: document.getElementById('ipt-edit-nome').value.trim(), placa: document.getElementById('ipt-edit-placa').value.trim(), chassi: document.getElementById('ipt-edit-chassi').value.trim(), email: document.getElementById('ipt-edit-email').value.trim(), telefone: document.getElementById('ipt-edit-telefone').value.trim(), fipe: document.getElementById('ipt-edit-fipe').value.trim() };
+      const btn = document.getElementById('btn-salvar-edicao-cli'); btn.innerHTML = "⏳ Salvando..."; btn.disabled = true;
+      google.script.run.withSuccessHandler(res => { aviso(res, 5000); btn.innerHTML = "💾 Salvar"; btn.disabled = false; fecharModalEdicaoCliente(); carregarFilaGeral(); }).withFailureHandler(err => { aviso("❌ " + err.message); btn.innerHTML = "💾 Salvar"; btn.disabled = false; }).web_atualizarDadosCliente(cli.abaNome, cli.linhaOriginal, payload);
+    }
+
+    function desenharTabelaFila() {
+      const chkMaster = document.getElementById('chk-master'); if (chkMaster) chkMaster.checked = false;
+      const corpo = document.getElementById('corpo-fila'); corpo.innerHTML = ""; const total = cacheFilaFiltrada.length;
+      if(total === 0) { corpo.innerHTML = `<tr><td colspan="11" class="px-6 py-16 text-center text-slate-500 dark:text-slate-400 font-bold text-lg">Nenhum cliente atende a este filtro.</td></tr>`; document.getElementById('paginacaoBox').classList.add('hidden'); } 
+      else {
+        const limit = rowsPerPage === 'todos' ? total : parseInt(rowsPerPage), start = (currentPage - 1) * limit, end = Math.min(start + limit, total), pageData = cacheFilaFiltrada.slice(start, end);
+        pageData.forEach((cli) => {
+          let cNC = "text-slate-800 dark:text-slate-100", ab = "";
+          if (cli.isInativo) { cNC = "text-purple-600 dark:text-purple-400 font-black"; ab = `<span class="bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-300 px-2 py-1 rounded text-[10px] font-bold mr-1 print:border" title="${cli.notaNome}">INATIVO SGA</span>`; }
+          let fE = cli.email || "-";
+          if (cli.isErroEmail) { fE = `<span class="text-rose-600 dark:text-rose-400 font-bold flex items-center gap-1" title="${cli.notaEmail}">❌ ${cli.email}</span>`; ab += `<span class="bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300 px-2 py-1 rounded text-[10px] font-bold mr-1 print:border" title="${cli.notaEmail}">ERRO E-MAIL</span>`; }
+          if (cli.isEnviado) ab += `<span class="bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-300 px-2 py-1 rounded text-[10px] font-bold mr-1 print:border">E-MAIL ENVIADO</span>`;
+          if (cli.isMoto) ab += `<span class="bg-emerald-200 dark:bg-emerald-900/60 text-emerald-900 dark:text-emerald-300 px-2 py-1 rounded text-[10px] font-bold mr-1 print:border">🏍️ MOTO</span>`;
+          if (ab === "") ab = `<span class="text-slate-400 dark:text-slate-500 text-[10px] font-bold uppercase tracking-wider">Pendente</span>`;
+          
+          const isResolvido = cli.isEnviado && cli.isWhatsEnviado && !cli.isInativo && !cli.isErroEmail && !cli.notaNome.includes("CONCLUÍDO");
+          
+          const rowCls = isResolvido ? "bg-slate-50 dark:bg-slate-800/40 opacity-60 grayscale-[30%]" : (cli.isMoto ? "linha-moto hover:brightness-95 dark:hover:brightness-110" : "hover:bg-indigo-50 dark:hover:bg-slate-700/50 bg-white dark:bg-darkcard table-row-anim transition");
+          
+          let badgeEtapa = cli.etapaNum === 1 ? `<div class="text-center text-xl cursor-help transform hover:scale-110 transition drop-shadow-sm" title="Boas Vindas">🔰</div>` : cli.etapaNum === 2 ? `<div class="text-center text-xl cursor-help transform hover:scale-110 transition drop-shadow-sm" title="Alerta 5 Dias">⚠️</div>` : `<div class="text-center text-xl cursor-help transform hover:scale-110 transition drop-shadow-sm" title="Prazo Expirado">⛔</div>`;
+          let tooltipEnd = ""; if (cli.cidade) tooltipEnd += `Cidade: ${cli.cidade}`; if (cli.bairro) tooltipEnd += (tooltipEnd ? `\n` : ``) + `Bairro: ${cli.bairro}`; if (!tooltipEnd) tooltipEnd = "Endereço detalhado indisponível";
+          let htmlLocalizacao = `<div class="flex items-center justify-between gap-2"><div class="cursor-help font-black text-[13px] whitespace-nowrap ${cli.isTecnicoIndisp ? 'text-amber-600 dark:text-amber-500' : 'text-slate-700 dark:text-slate-300'}" title="${tooltipEnd}">📍 ${cli.estado || "N/A"}</div><div class="flex items-center gap-1 print:hidden" title="Travar Cliente"><span class="text-lg grayscale opacity-70">🔒</span> ${criarToggle('tecnicoIndisp', cli.idUnico, cli.isTecnicoIndisp, 'bg-amber-500')}</div></div>`;
+          let htmlLogistica = `<span class="text-slate-400 dark:text-slate-500 italic text-[10px]">Sem rota definida</span>`;
+          if (cli.tecnicoDisp) { let tD = String(cli.tecnicoTipo || "Volante"); let nT = tD === 'Base' ? 'Base Física' : tD === 'Outros Estados' ? 'Outros Estados' : 'Técnico Volante'; htmlLogistica = `<div class="font-bold text-[11px] text-slate-700 dark:text-slate-300 w-32 truncate cursor-help hover:text-indigo-600 transition" title="Atendimento: ${nT}">👷 ${cli.tecnicoDisp}</div><div class="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">🛣️ ${cli.tecnicoDist} • ⏳ ${cli.tecnicoTempo}</div>`; }
+          
+          let htmlDisparos = `<div class="flex items-center gap-1.5 mt-1.5 flex-wrap">`; 
+          let tD = false;
+          if (cli.histE1) { htmlDisparos += `<span class="text-[17px] cursor-help hover:scale-125 transition drop-shadow-sm" title="🔰 Boas Vindas (Etapa 1)\nEnviado em: ${cli.histE1}">🔰</span>`; tD = true; }
+          if (cli.histE2) { htmlDisparos += `<span class="text-[17px] cursor-help hover:scale-125 transition drop-shadow-sm" title="⚠️ Lembrete 5 Dias (Etapa 2)\nEnviado em: ${cli.histE2}">⚠️</span>`; tD = true; }
+          if (cli.histE3) { htmlDisparos += `<span class="text-[17px] cursor-help hover:scale-125 transition drop-shadow-sm" title="⛔ Prazo Expirado (Etapa 3)\nEnviado em: ${cli.histE3}">⛔</span>`; tD = true; }
+          if (!tD) { htmlDisparos += `<span class="text-slate-400 dark:text-slate-500 italic text-[10px] font-medium border border-slate-200 dark:border-slate-700 px-2 py-0.5 rounded-md bg-slate-50 dark:bg-slate-800">Sem histórico</span>`; } 
+          htmlDisparos += `</div>`;
+
+          const isChecked = selectionSet.has(cli.idUnico) ? "checked" : "";
+          let fB = cli.isFipeBaixa ? "bg-rose-100 dark:bg-rose-900/40 border-rose-300 dark:border-rose-700/50 text-rose-800 dark:text-rose-400" : "bg-slate-100 dark:bg-slate-700 border-slate-300 dark:border-slate-600 text-slate-800 dark:text-slate-200";
+          let vD = cli.placa ? cli.placa : (cli.chassi ? cli.chassi : "-"); let fD = formatarMoedaBRL(cli.fipe);
+          
+          corpo.innerHTML += `<tr class="${rowCls} border-b border-slate-100 dark:border-slate-800/60"><td class="py-2 px-3 text-center border-r border-slate-100 dark:border-slate-700/30 print:hidden"><input type="checkbox" data-id="${cli.idUnico}" onchange="updateSelection(this)" class="chk-cli w-4 h-4 rounded text-indigo-600 dark:bg-slate-700 dark:border-slate-600 cursor-pointer focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed" ${isResolvido ? "disabled" : ""} ${isChecked}></td><td class="py-2 px-3 text-center border-r border-slate-100 dark:border-slate-700/30 align-middle">${badgeEtapa}</td><td class="py-2 px-4 font-bold ${cNC} whitespace-nowrap" title="${cli.notaNome}"><div class="flex items-center gap-2"><span class="truncate max-w-[200px]">${cli.nome || "-"}</span><button onclick="abrirModalEdicaoCliente('${cli.idUnico}')" class="text-[10px] bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-300 px-1.5 py-0.5 rounded shadow-sm transition print:hidden" title="Editar">✏️</button></div><span class="mt-1 block">${ab}</span></td><td class="py-2 px-4 font-mono font-medium text-slate-600 dark:text-slate-300 whitespace-nowrap">${vD}<br><span class="text-xs ${fB} border px-2.5 py-1 rounded-md font-black mt-1.5 block w-max shadow-sm tracking-wide print:border-none print:p-0 print:bg-transparent print:mt-0">${fD}</span></td><td class="py-2 px-4 whitespace-nowrap text-[12px]"><span class="text-slate-500 font-bold" title="Entrada">📥 ${cli.dataPlanilha || '-'}</span><br>${htmlDisparos}</td><td class="py-2 px-4 whitespace-nowrap text-xs">${fE}<br>${gerarLinkWhats(cli.telefone, cli.mensagemWhatsApp)}</td><td class="py-2 px-4 bg-amber-50/50 dark:bg-amber-900/10 border-l border-amber-100/50 dark:border-amber-900/20 print:bg-transparent">${htmlLocalizacao}</td><td class="py-2 px-4 bg-purple-50/50 dark:bg-purple-900/10 border-l border-purple-100/50 dark:border-purple-900/20 print:bg-transparent">${htmlLogistica}</td><td class="py-2 px-3 text-center bg-rose-50/50 dark:bg-rose-900/10 border-l border-rose-100/50 dark:border-rose-900/20 print:hidden">${criarToggle('fipeBaixa', cli.idUnico, cli.isFipeBaixa, 'bg-rose-500')}</td><td class="py-2 px-3 text-center bg-blue-50/50 dark:bg-blue-900/10 border-l border-blue-100/50 dark:border-blue-900/20 print:hidden">${criarToggle('respEmail', cli.idUnico, cli.isRespondeuEmail, 'bg-blue-500')}</td><td class="py-2 px-3 text-center bg-emerald-50/50 dark:bg-emerald-900/10 border-l border-emerald-100/50 dark:border-emerald-900/20 print:hidden">${criarToggle('respWhats', cli.idUnico, cli.isRespondeuWhats, 'bg-emerald-500')}</td></tr>`;
+        });
+        atualizarBoxPaginacao(start, end, total);
+      }
+      document.getElementById('loading-fila').classList.add('hidden'); document.getElementById('tabela-fila').classList.remove('hidden');
+    }
+
+    function updateSelection(chk) { const val = chk.getAttribute('data-id'); if (chk.checked) selectionSet.add(val); else selectionSet.delete(val); contarChecksGlobais(); }
+    function marcarTodosGeral(m) { document.querySelectorAll('.chk-cli:not([disabled])').forEach(c => { c.checked = m.checked; const val = c.getAttribute('data-id'); if (m.checked) selectionSet.add(val); else selectionSet.delete(val); }); contarChecksGlobais(); }
+    
+    function contarChecksGlobais() { 
+      document.getElementById('contadorSel').innerText = selectionSet.size; 
+      
+      let btnMig = document.getElementById('btn-flutuante-migracao');
+      if (!btnMig) {
+         const btnHtml = `<button id="btn-flutuante-migracao" onclick="abrirModalMigracao()" class="fixed bottom-10 right-10 bg-indigo-600 hover:bg-indigo-700 text-white font-black py-4 px-6 rounded-full shadow-2xl transition-all transform duration-300 z-40 flex items-center gap-2 translate-y-32 opacity-0 print:hidden"><span class="text-2xl">🔄</span> Mudar Etapa <span id="txt-qnt-migracao" class="bg-white text-indigo-600 px-2 py-0.5 rounded-md text-sm ml-1">0</span></button>`;
+         document.body.insertAdjacentHTML('beforeend', btnHtml);
+         btnMig = document.getElementById('btn-flutuante-migracao');
+      }
+
+      if (selectionSet.size > 0) {
+         btnMig.classList.remove('translate-y-32', 'opacity-0');
+         document.getElementById('txt-qnt-migracao').innerText = selectionSet.size;
+      } else {
+         btnMig.classList.add('translate-y-32', 'opacity-0');
+      }
+    }
+
+    function abrirModalMigracao() {
+      const alvos = getAlvosSelecionados();
+      if (alvos.length === 0) return aviso("⚠️ Selecione os clientes que deseja migrar.");
+      
+      const corpo = document.getElementById('corpo-migracao');
+      corpo.innerHTML = "";
+      
+      alvos.forEach(cli => {
+        let badgeAtual = cli.etapaNum === 1 ? '🔰 E1' : cli.etapaNum === 2 ? '⚠️ E2' : '⛔ E3';
+        let badgeSugestao = cli.etapaSugerida === 1 ? '🔰 Etapa 1' : cli.etapaSugerida === 2 ? '⚠️ Etapa 2 (5d)' : '⛔ Etapa 3 (Expirado)';
+        let colorSLA = cli.diasUteisSLA >= 10 ? 'text-rose-600' : cli.diasUteisSLA >= 5 ? 'text-amber-600' : 'text-emerald-600';
+        
+        corpo.innerHTML += `
+          <tr class="border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800">
+            <td class="p-3 font-bold text-slate-800 dark:text-slate-200">${cli.nome}<br><span class="text-[10px] font-mono text-slate-500">${cli.placa || cli.chassi}</span></td>
+            <td class="p-3 text-center font-black text-slate-600 dark:text-slate-400">${badgeAtual}</td>
+            <td class="p-3 text-center font-black ${colorSLA}">${cli.diasUteisSLA} dias</td>
+            <td class="p-3 text-center font-bold text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/20" data-sugestao="${cli.etapaSugerida}">${badgeSugestao}</td>
+            <td class="p-3 text-center">
+              <select id="select-migracao-${cli.idUnico}" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded p-2 text-sm font-bold text-slate-700 dark:text-slate-300 focus:outline-none focus:ring-2 focus:ring-indigo-500 sel-migracao" data-id="${cli.idUnico}">
+                <option value="1" ${cli.etapaNum === 1 ? 'selected' : ''}>🔰 Etapa 1 (Boas Vindas)</option>
+                <option value="2" ${cli.etapaNum === 2 ? 'selected' : ''}>⚠️ Etapa 2 (Lembrete 5d)</option>
+                <option value="3" ${cli.etapaNum === 3 ? 'selected' : ''}>⛔ Etapa 3 (Expirado)</option>
+              </select>
+            </td>
+          </tr>
+        `;
+      });
+      document.getElementById('modal-migracao').classList.remove('hidden');
+    }
+
+    function fecharModalMigracao() { document.getElementById('modal-migracao').classList.add('hidden'); }
+
+    function aplicarSugestoesSLA() {
+      getAlvosSelecionados().forEach(cli => {
+         const sel = document.getElementById(`select-migracao-${cli.idUnico}`);
+         if (sel) sel.value = cli.etapaSugerida;
+      });
+      aviso("✨ Inteligência do SLA aplicada! Verifique a coluna de Nova Etapa.", 4000);
+    }
+
+    function forcarTodosParaEtapa(etapa) {
+      document.querySelectorAll('.sel-migracao').forEach(sel => sel.value = etapa);
+    }
+
+    function confirmarMigracaoEtapas() {
+      const movimentacoes = [];
+      let algoParaMover = false;
+
+      document.querySelectorAll('.sel-migracao').forEach(sel => {
+         const idUnico = sel.getAttribute('data-id');
+         const novaEtapa = parseInt(sel.value);
+         const cli = cacheFilaBase.find(c => c.idUnico === idUnico);
+         if (cli && cli.etapaNum !== novaEtapa) {
+            movimentacoes.push({ idUnico: idUnico, novaEtapa: novaEtapa });
+            algoParaMover = true;
+         }
+      });
+
+      if (!algoParaMover) return aviso("⚠️ Nenhum cliente teve a etapa alterada. Eles já estão na etapa correta.", 6000);
+
+      const btn = document.getElementById('btn-confirmar-migracao');
+      btn.innerHTML = "⏳ Movendo Clientes...";
+      btn.disabled = true;
+
+      google.script.run.withSuccessHandler(res => {
+         aviso(res, 6000);
+         btn.innerHTML = "🔄 Executar Migração"; btn.disabled = false;
+         fecharModalMigracao(); limparSelecaoAposAcao(); carregarFilaGeral();
+      }).withFailureHandler(err => {
+         aviso("❌ Erro: " + err.message, 8000);
+         btn.innerHTML = "🔄 Executar Migração"; btn.disabled = false;
+      }).web_migrarClientesEtapa(movimentacoes);
+    }
+
+    function getAlvosSelecionados() { return cacheFilaBase.filter(c => selectionSet.has(c.idUnico)); }
+    function limparSelecaoAposAcao() { selectionSet.clear(); contarChecksGlobais(); }
+    
+    function fecharModalPreview() { document.getElementById('modal-preview-emails').classList.add('hidden'); limparSelecaoAposAcao(); carregarFilaGeral(); }
+    function mostrarErroCritico(msg) { document.getElementById('texto-erro-critico').value = msg; document.getElementById('modal-erro-critico').classList.remove('hidden'); }
+    function copiarErroCritico() { document.getElementById('texto-erro-critico').select(); document.execCommand('copy'); aviso("📋 Código copiado!", 3000); }
+
+    function dispararLote() { 
+      const alvos = getAlvosSelecionados(); if(alvos.length === 0) return aviso('⚠️ Marque os clientes primeiro.'); 
+      const resp = document.getElementById('selectResponsavelFila') ? document.getElementById('selectResponsavelFila').value : "Sistema"; 
+      const grupos = {};
+      alvos.forEach(cli => {
+        if(!cli.email) return; 
+        const key = `${(cli.nome || "").toUpperCase().trim()}|${cli.email.toLowerCase().trim()}|${(cli.telefone || "").trim()}|${cli.etapaNum}|${cli.isFipeBaixa}`;
+        if(!grupos[key]) grupos[key] = { email: cli.email.toLowerCase().trim(), nome: cli.nome, telefone: cli.telefone, fipe: cli.fipe, etapaNum: cli.etapaNum, isFipeBaixa: cli.isFipeBaixa, veiculos: [], linhas: [], isErroEmail: false, isEnviado: false, isInativo: false };
+        if (cli.isErroEmail) grupos[key].isErroEmail = true; if (cli.isEnviado) grupos[key].isEnviado = true; if (cli.isInativo) grupos[key].isInativo = true;
+        grupos[key].veiculos.push(cli.placa ? cli.placa : cli.chassi); grupos[key].linhas.push(cli);
+      });
+      const listGrupos = Object.values(grupos); if(listGrupos.length === 0) return aviso("⚠️ Nenhum selecionado possui E-mail válido.");
+      listGrupos.forEach(g => { g.veiculosStr = g.veiculos.join(", "); }); window.gruposParaEnvio = listGrupos; window.respParaEnvio = resp;
+      aviso("⏳ Carregando Pipeline...", 60000); google.script.run.withSuccessHandler(renderizarModalPreview).withFailureHandler(e => mostrarErroCritico(e.message)).obterPreviewDisparoAgrupadoWeb(listGrupos);
+    }
+
+    function renderizarModalPreview(previews) {
+      document.getElementById('toast').classList.add('hidden'); window.previewsProcessados = previews;
+      const header = document.getElementById('header-modal-preview'); header.classList.remove('bg-emerald-600'); header.classList.add('bg-indigo-600');
+      document.getElementById('titulo-modal-preview').innerHTML = "📧 FASE 1: Validação de E-mails"; document.getElementById('desc-modal-preview').innerHTML = "Revise as prévias dos e-mails. Clique abaixo para disparar todos em lote e prosseguir.";
+      const divPreview = document.getElementById('preview-emails-body'); divPreview.innerHTML = "";
+      previews.forEach((p, index) => {
+        let eN = p.etapaNum === 1 ? "Boas Vindas" : p.etapaNum === 2 ? "Lembrete 5D" : p.etapaNum === "CANCELAMENTO" ? "Cancelamento" : "Prazo Expirado";
+        divPreview.innerHTML += `<div class="p-5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm mb-4"><div class="flex justify-between items-start mb-3 border-b border-slate-200 dark:border-slate-700 pb-3"><div><div class="font-black text-indigo-600 dark:text-indigo-400 text-lg">${p.email}</div><div class="text-sm text-slate-700 dark:text-slate-300 mt-1"><b>Aos cuidados de:</b> ${p.nome} | <b>Veículo(s):</b> <span class="font-mono">${p.veiculosStr}</span></div></div><div class="text-[10px] uppercase font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 px-3 py-1.5 rounded-md shadow-sm">Etapa: ${eN}</div></div><div class="border border-slate-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 flex flex-col overflow-hidden"><div class="bg-slate-200 dark:bg-slate-700 px-3 py-2 text-xs font-black uppercase flex items-center gap-2"><span>📧</span> Corpo do E-mail</div><div class="p-2 border-b border-slate-200 dark:border-slate-700 text-[11px] font-bold bg-slate-50 dark:bg-slate-800/50">Assunto: ${p.assunto}</div><div class="p-4 text-sm max-h-48 overflow-y-auto bg-white text-slate-800">${p.emailHtml}</div></div></div>`;
+      });
+      document.getElementById('footer-modal-preview').innerHTML = `<button onclick="fecharModalPreview()" class="px-5 py-2.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition">Cancelar Operação</button><button onclick="confirmarEnvioEmails()" class="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition shadow-lg shadow-indigo-200 dark:shadow-none flex items-center gap-2">🚀 Disparar TODOS os E-mails</button>`;
+      document.getElementById('modal-preview-emails').classList.remove('hidden');
+    }
+
+    async function confirmarEnvioEmails() { 
+      const gV = window.gruposParaEnvio.filter(g => !g.isErroEmail && !g.isEnviado && !g.isInativo); 
+      if(gV.length > 0) {
+          const mod = document.getElementById('modal-progresso'), bar = document.getElementById('barra-progresso'), cnt = document.getElementById('contador-progresso'), pct = document.getElementById('percentual-progresso'), dsc = document.getElementById('desc-progresso');
+          mod.classList.remove('hidden'); bar.style.width = '0%'; cnt.innerText = `0 / ${gV.length}`; pct.innerText = '0%'; 
+          let suc = 0, err = 0;
+          for (let i = 0; i < gV.length; i++) {
+            dsc.innerText = `Enviando E-mail: ${gV[i].nome}`;
+            try { await dispararEmailBackendPromise(gV[i], window.respParaEnvio); suc++; } catch (e) { err++; }
+            const p = Math.round(((i + 1) / gV.length) * 100); bar.style.width = `${p}%`; cnt.innerText = `${i + 1} / ${gV.length}`; pct.innerText = `${p}%`;
+          }
+          dsc.innerText = 'Iniciando Fase 2...'; await new Promise(r => setTimeout(r, 1000)); mod.classList.add('hidden'); 
+          if (err > 0) aviso(`⚠️ ${suc} enviados. ${err} falharam.`, 5000); else aviso(`✅ E-mails enviados! Preparando WhatsApp...`, 3000);
+      } else { aviso(`✅ Pulando para WhatsApp...`, 3000); }
+      renderizarModalWhatsApp(window.previewsProcessados);
+    }
+
+    function renderizarModalWhatsApp(previews) {
+      const header = document.getElementById('header-modal-preview'); header.classList.remove('bg-indigo-600'); header.classList.add('bg-emerald-600');
+      document.getElementById('titulo-modal-preview').innerHTML = "💬 FASE 2: Disparo de WhatsApp"; document.getElementById('desc-modal-preview').innerHTML = "Envie os WhatsApps e clique no botão para registrar o disparo.";
+      const divPreview = document.getElementById('preview-emails-body'); divPreview.innerHTML = "";
+      previews.forEach((p, index) => {
+        let eN = p.etapaNum === 1 ? "Boas Vindas" : p.etapaNum === 2 ? "Lembrete 5D" : p.etapaNum === "CANCELAMENTO" ? "Cancelamento" : "Prazo Expirado"; 
+        const fT = window.gruposParaEnvio[index].fipe ? formatarMoedaBRL(window.gruposParaEnvio[index].fipe) : "Sem FIPE";
+        divPreview.innerHTML += `<div class="p-5 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm mb-4" id="card-preview-whats-${index}"><div class="flex justify-between items-center mb-4 border-b border-slate-200 dark:border-slate-700 pb-3"><div class="font-black text-emerald-600 dark:text-emerald-400 text-lg flex items-center gap-2"><span>📱</span> ${p.nome}</div><div class="text-[10px] uppercase font-bold bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-400 px-3 py-1.5 rounded-md shadow-sm">Etapa: ${eN}</div></div><div class="grid grid-cols-1 lg:grid-cols-3 gap-6"><div class="lg:col-span-2 border border-emerald-300 dark:border-emerald-800 rounded-lg bg-white dark:bg-slate-900 flex flex-col overflow-hidden shadow-sm"><div class="bg-emerald-200 dark:bg-emerald-900/60 px-3 py-2 text-xs font-black uppercase text-emerald-900 dark:text-emerald-300 flex items-center gap-2"><span>💬</span> Prévia (WhatsApp)</div><div class="p-4 text-[13px] max-h-48 overflow-y-auto whitespace-pre-wrap font-mono leading-relaxed bg-emerald-50/30 dark:bg-slate-900 text-slate-800 dark:text-slate-300">${p.whatsText}</div></div><div class="lg:col-span-1 border border-slate-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 p-5 flex flex-col justify-between shadow-sm"><div><p class="text-[10px] uppercase font-black text-slate-400 mb-3 tracking-wider border-b border-slate-200 dark:border-slate-700 pb-2">Resumo</p><div class="mb-3"><span class="block text-[11px] font-bold text-slate-500 mb-0.5">Cliente:</span><p class="font-black text-slate-800 dark:text-slate-200 truncate text-sm" title="${p.nome}">${p.nome}</p></div><div class="mb-3"><span class="block text-[11px] font-bold text-slate-500 mb-0.5">Identificação:</span><span class="text-xs bg-slate-200 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2 py-0.5 rounded font-mono font-bold text-slate-700 dark:text-slate-300 block w-max">${p.veiculosStr}</span></div><div class="mb-3"><span class="block text-[11px] font-bold text-slate-500 mb-0.5">FIPE:</span><p class="text-sm font-black text-indigo-600 dark:text-indigo-400">${fT}</p></div><div class="mb-2"><span class="block text-[11px] font-bold text-slate-500 mb-0.5">Telefone:</span><p class="text-sm font-mono text-slate-800 dark:text-slate-200 font-bold">${p.telefoneLimpo ? '+' + p.telefoneLimpo : 'Não Cadastrado'}</p></div></div><button id="btn-whats-${index}" onclick="enviarWhatsIndividual(${index})" class="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm transition flex items-center justify-center gap-2 mt-4 shadow-lg shadow-emerald-200 dark:shadow-none transform hover:-translate-y-0.5"><span class="text-lg">💬</span> Disparar e Registrar</button></div></div></div>`;
+      });
+      document.getElementById('footer-modal-preview').innerHTML = `<button onclick="fecharModalPreview()" class="px-8 py-3 bg-slate-800 dark:bg-slate-700 text-white font-bold rounded-lg hover:bg-slate-900 transition shadow-lg w-full md:w-auto">Concluir e Fechar</button>`;
+    }
+
+    // [SÊNIOR FIX]: Sintaxe Assíncrona Totalmente Refatorada
+    function enviarWhatsIndividual(index) {
+      const p = window.previewsProcessados[index]; 
+      if(!p.telefoneLimpo || p.telefoneLimpo.length < 10) return aviso("⚠️ Telefone inválido.");
+      
+      window.open(`https://wa.me/${p.telefoneLimpo}?text=${encodeURIComponent(p.whatsText)}`, '_blank');
+      
+      const btn = document.getElementById(`btn-whats-${index}`); 
+      btn.innerHTML = `⏳ Marcando...`; 
+      btn.disabled = true; 
+      btn.classList.replace("bg-emerald-600", "bg-emerald-400");
+      
+      const isCancelamento = p.etapaNum === "CANCELAMENTO";
+      
+      // Objeto de chamada da API do Google script adequadamente construído
+      const runner = google.script.run
+        .withSuccessHandler(() => { 
+          btn.innerHTML = `✅ Whats Marcado`; 
+          btn.classList.replace("bg-emerald-400", "bg-green-600"); 
+          btn.classList.add("cursor-not-allowed"); 
+        })
+        .withFailureHandler(e => { 
+          btn.innerHTML = `❌ Erro`; 
+          btn.disabled = false; 
+          btn.classList.replace("bg-emerald-400", "bg-red-600"); 
+          aviso("❌ Erro ao marcar: " + e.message);
+        });
+
+      // Disparo Exato
+      if (isCancelamento) {
+        runner.web_marcarWhatsCancelamentoWeb([window.gruposParaEnvio[index]], window.respParaEnvio);
+      } else {
+        runner.marcarWhatsAgrupadoWeb([window.gruposParaEnvio[index]], window.respParaEnvio);
+      }
+    }
+    
+    function marcarLoteSemEnviar() { const alvos = getAlvosSelecionados(); if(alvos.length === 0) return aviso('⚠️ Selecione primeiro.'); const resp = document.getElementById('selectResponsavelFila') ? document.getElementById('selectResponsavelFila').value : "Sistema"; if(!confirm(`Marcar ${alvos.length} como enviados?`)) return; aviso("✔️ Marcando...", 60000); google.script.run.withSuccessHandler(res => { aviso(res, 6000); limparSelecaoAposAcao(); carregarFilaGeral(); }).marcarComoEnviadoWeb(alvos, resp); }
+    
+    function processarItemBackend(cli, comando) { return new Promise((res, rej) => { google.script.run.withSuccessHandler(r => res(r)).withFailureHandler(e => rej(e)).processarItemLoteWeb(cli, comando); }); }
+
+    async function rodarFerramentaLote(comando) {
+      const alvos = getAlvosSelecionados(); if(alvos.length === 0) return aviso('⚠️ Selecione os clientes.');
+      const mod = document.getElementById('modal-progresso'), bar = document.getElementById('barra-progresso'), cnt = document.getElementById('contador-progresso'), pct = document.getElementById('percentual-progresso'), dsc = document.getElementById('desc-progresso');
+      mod.classList.remove('hidden'); bar.style.width = '0%'; cnt.innerText = `0 / ${alvos.length}`; pct.innerText = '0%'; dsc.innerText = 'Preparando...';
+      let suc = 0, err = 0;
+      for (let i = 0; i < alvos.length; i++) {
+        dsc.innerText = `Processando: ${alvos[i].nome || alvos[i].placa}`;
+        try { const res = await processarItemBackend(alvos[i], comando); if (res.status === 'ok') suc++; else if (res.status === 'erro') err++; } catch (e) { err++; }
+        const p = Math.round(((i + 1) / alvos.length) * 100); bar.style.width = `${p}%`; cnt.innerText = `${i + 1} / ${alvos.length}`; pct.innerText = `${p}%`;
+      }
+      dsc.innerText = 'Finalizando...'; setTimeout(() => { mod.classList.add('hidden'); aviso(`✅ Concluído!\n${suc} atualizados.\n${err} ignorados.`, 8000); limparSelecaoAposAcao(); carregarFilaGeral(); }, 800);
+    }
+    
+    function rodarFerramentaGlobal(cmd) { aviso("⚙️ Processando...", 120000); google.script.run.withSuccessHandler(res => aviso(res, 8000)).executarFerramentaWebGlobal(cmd); }
+
+    function varrerConcluidosSelecionados() {
+      const alvos = getAlvosSelecionados();
+      if(alvos.length === 0) return aviso('⚠️ Selecione primeiro os clientes que deseja verificar.');
+      
+      aviso("⏳ A verificar o status dos clientes selecionados na API Hinova...", 60000);
+      
+      google.script.run
+        .withSuccessHandler(function(mensagem) {
+          aviso(mensagem, 8000);
+          limparSelecaoAposAcao();
+          carregarFilaGeral();
+        })
+        .withFailureHandler(function(erro) {
+          aviso("❌ Erro na varredura seletiva: " + erro.message, 8000);
+        })
+        .varrerConcluidosSelecionadosWeb(alvos);
+    }
+// =======================================================================
+    // IMPORTAÇÃO DE LOTES (SGA HINOVA)
+    // =======================================================================
+    function limparLote() { 
+      document.getElementById('txtPastedSGA').value = ""; 
+      document.getElementById('boxPreviewLote').classList.add('hidden'); 
+      cacheLoteParsed = []; 
+    }
+    
+    function processarPastedData() {
+      const rawText = document.getElementById('txtPastedSGA').value; 
+      if(!rawText.trim()) return aviso("⚠️ Cole o texto primeiro!");
+      
+      const linhas = rawText.split('\n').map(l => l.trim()).filter(l => l !== "");
+      const parsed = [];
+      
+      const regexCabecalho = /^PENDENTE/i;
+      const regexData = /\d{2}\/\d{2}\/\d{4}/;
+      const regexPlaca = /^[A-Z]{3}[\s-]?[0-9][A-Z0-9][0-9]{2}$|^[A-Z]{3}[\s-]?[0-9]{4}$/i;
+      const regexChassi = /^[A-HJ-NPR-Z0-9]{17}$/i;
+      const regexValor = /^R\$\s*[\d\.,]+/i;
+      const regexEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
+      const regexTelefone = /^\(\d{2}\)\s*\d{4,5}-?\d{4}$/i;
+      const regexUF = /^[A-Z]{2}$/;
+
+      let cliAtual = null;
+
+      for (let j = 0; j < linhas.length; j++) {
+          let linha = linhas[j];
+
+          // 1. Identifica Início de Cliente
+          if (regexCabecalho.test(linha)) {
+              if (cliAtual && (cliAtual.placa || cliAtual.chassi)) parsed.push(cliAtual);
+              
+              cliAtual = { data: "", nome: "", placa: "", chassi: "", email: "", telefone: "", fipe: "", estado: "", cidade: "", bairro: "" };
+              
+              let matchData = linha.match(regexData);
+              cliAtual.data = matchData ? matchData[0] : "";
+              
+              if (j + 1 < linhas.length && !regexCabecalho.test(linhas[j + 1])) {
+                  cliAtual.nome = linhas[j + 1].toUpperCase();
+                  j++; 
+              }
+              continue;
+          }
+
+          if (!cliAtual) continue;
+
+          // 2. Classificação Heurística por Padrão de String
+          if (regexPlaca.test(linha)) { cliAtual.placa = linha.toUpperCase(); continue; }
+          if (regexChassi.test(linha)) { cliAtual.chassi = linha.toUpperCase(); continue; }
+          if (regexValor.test(linha)) { cliAtual.fipe = linha.replace(/R\$\s?/gi, '').trim(); continue; }
+          if (regexEmail.test(linha)) { cliAtual.email = linha.toLowerCase(); continue; }
+          
+          if (regexTelefone.test(linha) || /^\d{10,11}$/.test(linha.replace(/\D/g, ''))) { 
+              cliAtual.telefone = linha; 
+              continue; 
+          }
+          
+          if (regexUF.test(linha) && linha.length === 2) { cliAtual.estado = linha.toUpperCase(); continue; }
+
+          // 3. Captura Cidade e Bairro por Exclusão
+          if (cliAtual.estado && !cliAtual.cidade && linha.toUpperCase() !== "PENDENTE") { 
+              cliAtual.cidade = linha; 
+              continue; 
+          }
+          if (cliAtual.cidade && !cliAtual.bairro && linha.toUpperCase() !== "PENDENTE") { 
+              cliAtual.bairro = linha; 
+              continue; 
+          }
+      }
+      
+      // Salva o último cliente que sobrou na variável
+      if (cliAtual && (cliAtual.placa || cliAtual.chassi)) parsed.push(cliAtual);
+      
+      if (parsed.length === 0) return aviso("⚠️ Não encontrei clientes. Certifique-se de colar o relatório completo com os status 'PENDENTE'.");
+      
+      cacheLoteParsed = parsed; 
+      document.getElementById('contPreview').innerText = parsed.length;
+      
+      document.getElementById('corpoPreview').innerHTML = parsed.map(c => { 
+        let fipeDisplay = formatarMoedaBRL(c.fipe); 
+        let veicDisplay = c.placa ? c.placa : (c.chassi ? c.chassi : '-'); 
+        let localDisplay = (c.estado || c.cidade) ? `<span class="text-[10px] text-slate-500 dark:text-slate-400 block mt-1 font-bold">📍 ${c.cidade || 'Sem Cid'} - ${c.estado || ''}</span>` : '';
+        
+        return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700/50">
+                  <td class="py-3 px-4 font-mono font-medium">${c.data || '-'}</td>
+                  <td class="py-3 px-4 font-bold text-indigo-600 dark:text-indigo-400">${c.nome || 'SEM NOME'}${localDisplay}</td>
+                  <td class="py-3 px-4 font-mono font-medium text-slate-600 dark:text-slate-300">${veicDisplay}<br><span class="text-[12px] bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2.5 py-1 rounded-md text-slate-800 dark:text-slate-200 font-black mt-1.5 block w-max shadow-sm">${fipeDisplay}</span></td>
+                  <td class="py-3 px-4 text-xs">${c.email}<br><span class="font-bold text-slate-800 dark:text-slate-200 mt-1 block">${c.telefone}</span></td>
+                </tr>` 
+      }).join('');
+      
+      document.getElementById('boxPreviewLote').classList.remove('hidden'); 
+      aviso(`✅ ${parsed.length} clientes formatados prontos para importação!`);
+    }
+
+    function confirmarLoteBanco() { 
+      if(cacheLoteParsed.length === 0) return; 
+      const btn = document.getElementById('btnConfirmarLote'); 
+      btn.innerHTML = "Salvando..."; 
+      btn.disabled = true; 
+      google.script.run.withSuccessHandler(res => { 
+        aviso(res, 10000); 
+        limparLote(); 
+        btn.innerHTML = "📥 Salvar no Banco Seguro"; 
+        btn.disabled = false; 
+      }).withFailureHandler(e => { 
+        aviso("❌ Erro: " + e.message); 
+        btn.innerHTML = "📥 Salvar no Banco Seguro"; 
+        btn.disabled = false; 
+      }).cadastrarLoteWeb(cacheLoteParsed); 
+    }
+   
+    // =======================================================================
+    // CONFIGURAÇÕES E LOGS GERAIS
+    // =======================================================================
+    function carregarConfigs() { google.script.run.withSuccessHandler(c => { const d = document.getElementById('corpo-config'); d.innerHTML = ""; c.forEach(cfg => { d.innerHTML += `<div class="bg-white dark:bg-darkcard p-6 rounded-2xl border border-slate-200 dark:border-darkborder shadow-sm mb-6 transition"><div class="flex justify-between items-center mb-4"><h3 class="font-black text-slate-800 dark:text-white text-lg flex items-center gap-2"><span class="text-indigo-500">📝</span> ${cfg.chave}</h3><button onclick="salvarCfg(${cfg.linhaOriginal}, 'txt-${cfg.linhaOriginal}')" id="btn-cfg-${cfg.linhaOriginal}" class="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg font-bold shadow-md transition flex items-center gap-2 transform hover:-translate-y-0.5">💾 Salvar</button></div><textarea id="txt-${cfg.linhaOriginal}" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-5 text-sm font-mono text-slate-700 dark:text-slate-300 outline-none focus:ring-2 focus:ring-indigo-500 transition" rows="6">${cfg.texto}</textarea></div>`; }); }).solicitarDadosWeb('config'); }
+    function salvarCfg(l, id) { const btn = document.getElementById('btn-cfg-' + l); if(btn) { btn.innerHTML = "⏳ Salvando..."; btn.disabled = true; } google.script.run.withSuccessHandler(res => { aviso(res); if(btn) { btn.innerHTML = "💾 Salvar"; btn.disabled = false; } }).withFailureHandler(err => { aviso("❌ Erro: " + err.message); if(btn) { btn.innerHTML = "💾 Salvar"; btn.disabled = false; } }).salvarConfiguracaoWeb(l, document.getElementById(id).value); }
+
+    function aplicarFiltrosLogs() {
+      const fE = document.getElementById('filtroLogEtapa').value;
+      const fC = document.getElementById('filtroLogConclusao').value;
+      const fS = document.getElementById('filtroLogSituacao').value;
+      const fErr = document.getElementById('filtroLogErro').value;
+      const iptBuscaLog = document.getElementById('ipt-busca-log');
+      const termoBuscaLog = iptBuscaLog ? iptBuscaLog.value.toLowerCase().trim() : "";
+
+      cacheLogsFiltrados = cacheLogsBase.linhas.filter(l => {
+        let p = true;
+        if (fE !== 'todas' && String(l.etapa) !== fE) p = false;
+        if (fS === 'ativos' && l.isInativo) p = false;
+        if (fS === 'inativos' && !l.isInativo) p = false;
+        if (fErr === 'com_erro' && !l.isErro) p = false;
+        if (fErr === 'sem_erro' && l.isErro) p = false;
+        if (fC === 'concluidos' && !l.isConcluido) p = false;
+        if (fC === 'pendentes' && l.isConcluido) p = false;
+        
+        if (p && termoBuscaLog !== "") {
+            const conteudoLinha = l.htmlArr.join(" ").toLowerCase();
+            if (!conteudoLinha.includes(termoBuscaLog)) p = false;
+        }
+        return p;
+      });
+      currentLogPage = 1; renderTabelaLogs();
+    }
+    
+    function carregarDadosDoLog() { document.getElementById('loading-logs').classList.remove('hidden'); document.getElementById('tabela-logs').classList.add('hidden'); google.script.run.withSuccessHandler(res => { document.getElementById('loading-logs').classList.add('hidden'); cacheLogsBase = res; aplicarFiltrosLogs(); }).solicitarDadosWeb('logs'); }
+    function mudarPaginacaoLogs() { rowsPerLogPage = document.getElementById('selectRowsPerLogPage').value; currentLogPage = 1; renderTabelaLogs(); }
+    function prevPageLogs() { if(currentLogPage > 1) { currentLogPage--; renderTabelaLogs(); } }
+    function nextPageLogs() { const l = rowsPerLogPage === 'todos' ? cacheLogsFiltrados.length : parseInt(rowsPerLogPage); if(currentLogPage * l < cacheLogsFiltrados.length) { currentLogPage++; renderTabelaLogs(); } }
+    
+    function renderTabelaLogs() {
+      if(!cacheLogsBase.colunas) return; document.getElementById('head-logs').innerHTML = '<tr>' + cacheLogsBase.colunas.map(c => '<th class="px-6 py-4">' + c + '</th>').join('') + '</tr>'; const t = cacheLogsFiltrados.length;
+      if(t === 0) { document.getElementById('corpo-logs').innerHTML = `<tr><td colspan="5" class="px-6 py-16 text-center text-slate-500 dark:text-slate-400 font-bold text-lg">Nenhum registro atende aos filtros atuais.</td></tr>`; } 
+      else { const l = rowsPerLogPage === 'todos' ? t : parseInt(rowsPerLogPage), s = (currentLogPage - 1) * l, e = Math.min(s + l, t), d = cacheLogsFiltrados.slice(s, e); document.getElementById('corpo-logs').innerHTML = d.map(r => '<tr class="border-b border-slate-100 dark:border-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">' + r.htmlArr.map(c => '<td class="px-6 py-4">' + c + '</td>').join('') + '</tr>').join(''); document.getElementById('pageInfoLogs').innerText = `Mostrando ${s + 1} a ${e} de ${t}`; document.getElementById('btnPrevLogs').disabled = currentLogPage === 1; document.getElementById('btnNextLogs').disabled = currentLogPage * l >= t; }
+      document.getElementById('paginacaoBoxLogs').classList.remove('hidden'); document.getElementById('tabela-logs').classList.remove('hidden');
+    }
+
+    // =======================================================================
+    // TÉCNICOS E USUÁRIOS
+    // =======================================================================
+    let cacheTecnicosGeral = []; let colunaOrdenacaoTec = 'nome'; let ordemAscendenteTec = true;
+    function setSortTecnicos(col) { if (colunaOrdenacaoTec === col) { ordemAscendenteTec = !ordemAscendenteTec; } else { colunaOrdenacaoTec = col; ordemAscendenteTec = true; } document.querySelectorAll('[id^="sort-tec-"]').forEach(i => { i.innerHTML = ""; i.parentElement.classList.remove('sort-active'); }); const at = document.getElementById(`sort-tec-${col}`); if (at) { at.innerHTML = ordemAscendenteTec ? "▲" : "▼"; at.parentElement.classList.add('sort-active'); } renderizarTabelaTecnicos(); }
+    function renderizarTabelaTecnicos() {
+      const corpo = document.getElementById('corpo-tecnicos'); corpo.innerHTML = "";
+      if (!cacheTecnicosGeral || cacheTecnicosGeral.length === 0) { corpo.innerHTML = `<tr><td colspan="5" class="px-6 py-16 text-center text-slate-500 dark:text-slate-400 font-bold text-lg">Nenhum técnico cadastrado.</td></tr>`; return; }
+      let dOrd = [...cacheTecnicosGeral]; dOrd.sort((a, b) => { let vA = (a[colunaOrdenacaoTec] || "").toString().toLowerCase(); let vB = (b[colunaOrdenacaoTec] || "").toString().toLowerCase(); if (vA < vB) return ordemAscendenteTec ? -1 : 1; if (vA > vB) return ordemAscendenteTec ? 1 : -1; return 0; });
+      dOrd.forEach((tec) => {
+        const tLoc = `Cidade: ${tec.cidade || '-'}\nBairro: ${tec.bairro || '-'}`;
+        let bT = tec.tipo === 'Base' ? `<span class="bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-300 px-2 py-1 rounded text-[10px] font-black uppercase border border-blue-200 dark:border-blue-800" title="Base Física">🏢 BASE</span>` : tec.tipo === 'Outros Estados' ? `<span class="bg-purple-100 dark:bg-purple-900/50 text-purple-800 dark:text-purple-300 px-2 py-1 rounded text-[10px] font-black uppercase border border-purple-200 dark:border-purple-800" title="Outros Estados">✈️ OUTROS</span>` : `<span class="bg-orange-100 dark:bg-orange-900/50 text-orange-800 dark:text-orange-300 px-2 py-1 rounded text-[10px] font-black uppercase border border-orange-200 dark:border-orange-800" title="Técnico Volante">🚗 VOLANTE</span>`;
+        corpo.innerHTML += `<tr class="hover:bg-indigo-50 dark:hover:bg-slate-700/50 bg-white dark:bg-darkcard transition border-b border-slate-100 dark:border-slate-800/60"><td class="py-2.5 px-4 align-middle"><span class="font-black text-slate-800 dark:text-slate-200 text-sm truncate max-w-[200px]" title="${tec.nome}">${tec.nome}</span></td><td class="py-2.5 px-4 align-middle">${bT}</td><td class="py-2.5 px-4 align-middle text-center"><div class="cursor-help font-black text-[11px] text-slate-700 dark:text-slate-300 inline-flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-700 transition shadow-sm w-max mx-auto" title="${tLoc}">📍 ${tec.estado || '-'}</div></td><td class="py-2.5 px-4 font-mono text-slate-600 dark:text-slate-400 text-xs align-middle">${tec.telefone || "---"}</td><td class="py-2.5 px-4 align-middle"><div class="flex items-center justify-center gap-2"><button onclick="abrirModalTecnico(${tec.linha})" class="bg-indigo-50 dark:bg-indigo-900/40 hover:bg-indigo-100 dark:hover:bg-indigo-800/60 text-indigo-700 dark:text-indigo-400 px-2.5 py-1.5 rounded font-bold transition text-[10px] border border-indigo-200 dark:border-indigo-800/50 shadow-sm flex items-center gap-1">✏️ Editar</button><button onclick="excluirTecnico(${tec.linha})" class="text-rose-500 hover:text-rose-700 dark:hover:text-rose-400 bg-rose-50 dark:bg-rose-900/20 font-bold transition text-[10px] px-2.5 py-1.5 rounded border border-rose-200 dark:border-rose-800/50 shadow-sm flex items-center gap-1">🗑️ Remover</button></div></td></tr>`;
+      });
+    }
+    function carregarTecnicos() { document.getElementById('loading-tecnicos').classList.remove('hidden'); document.getElementById('tabela-tecnicos').classList.add('hidden'); google.script.run.withSuccessHandler(d => { document.getElementById('loading-tecnicos').classList.add('hidden'); if (d && d.erro) return aviso("❌ " + d.erro, 10000); cacheTecnicosGeral = d; renderizarTabelaTecnicos(); const iP = document.getElementById('sort-tec-nome'); if (iP) { iP.innerHTML = "▲"; iP.parentElement.classList.add('sort-active'); } document.getElementById('tabela-tecnicos').classList.remove('hidden'); }).withFailureHandler(e => { document.getElementById('loading-tecnicos').classList.add('hidden'); aviso("❌ Erro: " + e.message, 10000); }).solicitarDadosWeb('tecnicos'); }
+    function abrirModalTecnico(l = null) {
+      ['ipt-tec-cep', 'ipt-tec-nome', 'ipt-tec-end', 'ipt-tec-num', 'ipt-tec-bairro', 'ipt-tec-cidade', 'ipt-tec-estado', 'ipt-tec-tel', 'ipt-tec-tipo'].forEach(id => document.getElementById(id).classList.remove('bg-emerald-50', 'dark:bg-emerald-900/20', 'border-emerald-400'));
+      if (l) { const t = cacheTecnicosGeral.find(x => x.linha === l); if (!t) return; document.getElementById('titulo-modal-tecnico').innerText = "✏️ Editar Técnico"; document.getElementById('ipt-tec-linha').value = l; document.getElementById('ipt-tec-nome').value = t.nome; document.getElementById('ipt-tec-tipo').value = t.tipo || "Volante"; document.getElementById('ipt-tec-end').value = t.endereco; document.getElementById('ipt-tec-num').value = t.numero; document.getElementById('ipt-tec-bairro').value = t.bairro; document.getElementById('ipt-tec-cidade').value = t.cidade; document.getElementById('ipt-tec-estado').value = t.estado; document.getElementById('ipt-tec-cep').value = t.cep; document.getElementById('ipt-tec-tel').value = t.telefone; } 
+      else { document.getElementById('titulo-modal-tecnico').innerText = "➕ Cadastrar Técnico"; document.getElementById('ipt-tec-linha').value = ""; ['ipt-tec-cep', 'ipt-tec-nome', 'ipt-tec-end', 'ipt-tec-num', 'ipt-tec-bairro', 'ipt-tec-cidade', 'ipt-tec-estado', 'ipt-tec-tel'].forEach(id => document.getElementById(id).value = ""); document.getElementById('ipt-tec-tipo').value = "Volante"; }
+      document.getElementById('modal-tecnico').classList.remove('hidden'); 
+    }
+    function fecharModalTecnico() { document.getElementById('modal-tecnico').classList.add('hidden'); }
+    function buscarCepFormulario() { const cR = document.getElementById('ipt-tec-cep').value.replace(/\D/g, ''); if (cR.length !== 8) return aviso("⚠️ CEP inválido."); const btn = document.getElementById('btn-busca-cep'); btn.innerHTML = "⏳..."; btn.disabled = true; fetch(`https://viacep.com.br/ws/${cR}/json/`).then(r => r.json()).then(d => { btn.innerHTML = "🔍 Buscar"; btn.disabled = false; if (d.erro) return aviso("❌ CEP não encontrado."); [{ id: 'ipt-tec-end', v: d.logradouro }, { id: 'ipt-tec-bairro', v: d.bairro }, { id: 'ipt-tec-cidade', v: d.localidade }, { id: 'ipt-tec-estado', v: d.uf }].forEach(c => { const el = document.getElementById(c.id); el.value = c.v || ""; el.classList.add('bg-emerald-50', 'dark:bg-emerald-900/20', 'border-emerald-400'); }); document.getElementById('ipt-tec-num').focus(); aviso("✅ Endereço preenchido."); }).catch(e => { btn.innerHTML = "🔍 Buscar"; btn.disabled = false; aviso("❌ Erro ViaCEP."); }); }
+    function salvarTecnicoFormulario() { const p = { nome: document.getElementById('ipt-tec-nome').value.trim(), tipo: document.getElementById('ipt-tec-tipo').value, endereco: document.getElementById('ipt-tec-end').value.trim(), numero: document.getElementById('ipt-tec-num').value.trim(), bairro: document.getElementById('ipt-tec-bairro').value.trim(), cidade: document.getElementById('ipt-tec-cidade').value.trim(), estado: document.getElementById('ipt-tec-estado').value.trim().toUpperCase(), cep: document.getElementById('ipt-tec-cep').value.trim(), telefone: document.getElementById('ipt-tec-tel').value.trim() }; if (!p.nome) return aviso("⚠️ Nome obrigatório."); const l = document.getElementById('ipt-tec-linha').value; const btn = document.getElementById('btn-salvar-tec'); btn.innerHTML = "Salvando..."; btn.disabled = true; if (l) { google.script.run.withSuccessHandler(r => { aviso(r); btn.innerHTML = "💾 Salvar Dados"; btn.disabled = false; fecharModalTecnico(); carregarTecnicos(); }).withFailureHandler(e => { aviso("❌ " + e.message); btn.innerHTML = "💾 Salvar Dados"; btn.disabled = false; }).web_atualizarTecnico(l, p); } else { google.script.run.withSuccessHandler(r => { aviso(r); btn.innerHTML = "💾 Salvar Dados"; btn.disabled = false; fecharModalTecnico(); carregarTecnicos(); }).withFailureHandler(e => { aviso("❌ " + e.message); btn.innerHTML = "💾 Salvar Dados"; btn.disabled = false; }).web_adicionarTecnico(p); } }
+    function excluirTecnico(l) { const t = cacheTecnicosGeral.find(x => x.linha === l); if(!t) return; if(confirm(`Excluir "${t.nome}"?`)) { aviso("🗑️ Removendo..."); google.script.run.withSuccessHandler(r => { aviso(r); carregarTecnicos(); }).web_removerTecnico(l); } }
+
+    let cacheUsuarios = [];
+    function carregarUsuarios() {
+      document.getElementById('loading-usuarios').classList.remove('hidden'); document.getElementById('tabela-usuarios').classList.add('hidden');
+      google.script.run.withSuccessHandler(dados => {
+        document.getElementById('loading-usuarios').classList.add('hidden'); cacheUsuarios = dados; const corpo = document.getElementById('corpo-usuarios'); corpo.innerHTML = "";
+        if(cacheUsuarios.length === 0) { corpo.innerHTML = `<tr><td colspan="5" class="px-6 py-16 text-center text-slate-500 font-bold">Nenhum usuário.</td></tr>`; } 
+        else {
+           cacheUsuarios.forEach(u => {
+              const corNivel = u.nivel === 'ADMINISTRADOR' ? 'text-rose-600 bg-rose-100 dark:bg-rose-900/30 border-rose-300' : 'text-blue-600 bg-blue-100 dark:bg-blue-900/30 border-blue-300';
+              corpo.innerHTML += `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-100 dark:border-slate-800/60 transition"><td class="py-3 px-4 font-black text-slate-800 dark:text-white">${u.nome}</td><td class="py-3 px-4 font-mono text-slate-600 dark:text-slate-400">${u.login}</td><td class="py-3 px-4 text-center"><span class="px-2.5 py-1 text-[10px] font-black uppercase rounded border ${corNivel}">${u.nivel}</span></td><td class="py-3 px-4 text-center font-mono text-xs text-slate-500">${u.sgaUser || '---'}</td><td class="py-3 px-4 text-center"><div class="flex items-center justify-center gap-2"><button onclick="resetarSenhaUsuario(${u.linha})" class="text-amber-600 hover:text-amber-700 bg-amber-50 dark:bg-amber-900/20 font-bold px-2.5 py-1.5 rounded border border-amber-200 dark:border-amber-800/50 text-[10px]" title="Forçar senha padrão ZEN0102*">🔄 Reset</button><button onclick="excluirUsuario(${u.linha})" class="text-rose-500 hover:text-rose-700 bg-rose-50 dark:bg-rose-900/20 font-bold px-2.5 py-1.5 rounded border border-rose-200 dark:border-rose-800/50 text-[10px]">🗑️ Excluir</button></div></td></tr>`;
+           });
+        }
+        document.getElementById('tabela-usuarios').classList.remove('hidden');
+      }).web_obterUsuarios();
+    }
+    function abrirModalUsuario() { document.getElementById('ipt-usr-nome').value = ""; document.getElementById('ipt-usr-login').value = ""; document.getElementById('ipt-usr-sga-user').value = ""; document.getElementById('ipt-usr-sga-pass').value = ""; document.getElementById('ipt-usr-nivel').value = "Operador"; document.getElementById('modal-usuario').classList.remove('hidden'); }
+    function fecharModalUsuario() { document.getElementById('modal-usuario').classList.add('hidden'); }
+    function salvarUsuarioFormulario() {
+      const p = { nome: document.getElementById('ipt-usr-nome').value.trim(), login: document.getElementById('ipt-usr-login').value.trim().toLowerCase(), nivel: document.getElementById('ipt-usr-nivel').value, sgaUser: document.getElementById('ipt-usr-sga-user').value.trim(), sgaPass: document.getElementById('ipt-usr-sga-pass').value.trim() };
+      if(!p.nome || !p.login) return aviso("⚠️ Nome e Login são obrigatórios.");
+      const btn = document.getElementById('btn-salvar-usr'); btn.innerHTML = "⏳ Salvando..."; btn.disabled = true;
+      google.script.run.withSuccessHandler(res => { aviso(res, 6000); btn.innerHTML = "Salvar Usuário"; btn.disabled = false; fecharModalUsuario(); carregarUsuarios(); }).withFailureHandler(err => { aviso("❌ " + err.message); btn.innerHTML = "Salvar Usuário"; btn.disabled = false; }).web_adicionarUsuario(p);
+    }
+    function excluirUsuario(linha) { if(!confirm("Atenção! Excluir o acesso deste usuário definitivamente?")) return; aviso("⏳ Removendo..."); google.script.run.withSuccessHandler(res => { aviso(res); carregarUsuarios(); }).web_removerUsuario(linha); }
+    function resetarSenhaUsuario(linha) { if(!confirm("Atenção! Isso fará a senha do usuário voltar para o padrão ZEN0102*. Deseja continuar?")) return; aviso("⏳ Resetando..."); google.script.run.withSuccessHandler(res => { aviso(res, 6000); }).web_resetarSenha(linha); }
+
+    let usuarioLogado = null, tempUserParaTroca = null; 
+    function checarSessaoAtiva() { const sessaoStr = sessionStorage.getItem('sgcw_session'); if (sessaoStr) { usuarioLogado = JSON.parse(sessaoStr); liberarAcesso(usuarioLogado); return true; } return false; }
+    function fazerLogout() { sessionStorage.removeItem('sgcw_session'); document.getElementById('tela-login-overlay').style.opacity = '1'; document.getElementById('tela-login-overlay').classList.remove('hidden'); document.getElementById('login-pass').value = ''; document.getElementById('btn-nav-usuarios').classList.add('hidden'); window.location.reload(); }
+    function executarLogin() {
+      const u = document.getElementById('login-user').value.trim(); const p = document.getElementById('login-pass').value.trim(); const btn = document.getElementById('btn-login'); const errBox = document.getElementById('login-erro');
+      if(!u || !p) { errBox.innerText = "Preencha usuário e senha."; errBox.classList.remove('hidden'); return; }
+      btn.innerText = "Validando..."; btn.disabled = true; errBox.classList.add('hidden');
+      google.script.run.withSuccessHandler(res => {
+           if(res.erro) { btn.innerText = "Acessar Sistema"; btn.disabled = false; errBox.innerText = res.erro; errBox.classList.remove('hidden'); } 
+           else {
+              if (res.isDefault) { tempUserParaTroca = res; document.getElementById('tela-login-overlay').classList.add('hidden'); document.getElementById('modal-troca-senha').classList.remove('hidden'); document.getElementById('modal-troca-senha').classList.add('flex'); } 
+              else { sessionStorage.setItem('sgcw_session', JSON.stringify(res)); usuarioLogado = res; liberarAcesso(res); }
+           }
+        }).withFailureHandler(err => { btn.innerText = "Acessar Sistema"; btn.disabled = false; errBox.innerText = "Falha no servidor."; errBox.classList.remove('hidden'); }).web_validarLoginInterno(u, p);
+    }
+    function confirmarTrocaDeSenha() {
+       const s1 = document.getElementById('ipt-nova-senha').value.trim(); const s2 = document.getElementById('ipt-confirma-senha').value.trim(); const errBox = document.getElementById('troca-senha-erro'); const btn = document.getElementById('btn-trocar-senha');
+       if (s1.length < 6) { errBox.innerText = "A senha deve ter no mínimo 6 caracteres."; errBox.classList.remove('hidden'); return; }
+       if (s1 !== s2) { errBox.innerText = "As senhas não coincidem."; errBox.classList.remove('hidden'); return; }
+       btn.innerText = "⏳ Salvando..."; btn.disabled = true; errBox.classList.add('hidden');
+       google.script.run.withSuccessHandler(res => {
+            if (res.erro) { btn.innerText = "Salvar e Acessar"; btn.disabled = false; errBox.innerText = res.erro; errBox.classList.remove('hidden'); } 
+            else { tempUserParaTroca.isDefault = false; sessionStorage.setItem('sgcw_session', JSON.stringify(tempUserParaTroca)); usuarioLogado = tempUserParaTroca; document.getElementById('modal-troca-senha').classList.add('hidden'); document.getElementById('modal-troca-senha').classList.remove('flex'); liberarAcesso(tempUserParaTroca); }
+         }).withFailureHandler(err => { btn.innerText = "Salvar e Acessar"; btn.disabled = false; errBox.innerText = "Erro no servidor."; errBox.classList.remove('hidden'); }).web_alterarSenha(tempUserParaTroca.login, s1);
+    }
+    function liberarAcesso(usr) {
+      const overlay = document.getElementById('tela-login-overlay'); overlay.style.opacity = '0'; setTimeout(() => overlay.classList.add('hidden'), 500);
+      const dropResp = document.getElementById('bloco-responsavel');
+      if (dropResp) { dropResp.innerHTML = `<input type="hidden" id="selectResponsavelFila" value="${usr.nome}"><span class="text-indigo-600 dark:text-indigo-400 font-black text-sm px-3 uppercase tracking-wider select-none">👤 ${usr.nome}</span>`; }
+      if (usr.nivel === 'ADMIN' || usr.nivel === 'ADMINISTRADOR') { document.getElementById('btn-nav-usuarios').classList.remove('hidden'); } 
+      else { document.getElementById('btn-nav-usuarios').classList.add('hidden'); }
+      navegar('tela-manual', document.getElementById('btn-nav-manual')); carregarFilaGeral();
+    }
+
+    const modalMigracaoHTML = `
+    <div id="modal-migracao" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 print:hidden">
+      <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 w-full max-w-5xl flex flex-col overflow-hidden max-h-[90vh]">
+        <div id="header-modal-migracao" class="bg-indigo-600 px-6 py-4 flex justify-between items-center text-white shadow-md z-10">
+          <div>
+            <h2 class="text-xl font-black flex items-center gap-2">🔄 Painel de Migração SLA</h2>
+            <p class="text-indigo-100 text-sm mt-1">Avance para a próxima etapa ou restaure clientes. A decisão final é sua.</p>
+          </div>
+          <button onclick="fecharModalMigracao()" class="text-white/80 hover:text-white bg-white/10 hover:bg-white/20 rounded-lg p-2 transition">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
+        </div>
+        <div class="p-6 overflow-y-auto bg-slate-50 dark:bg-slate-800/50 flex-1 relative">
+          <div class="flex justify-between items-end mb-4 gap-4 flex-wrap">
+            <button onclick="aplicarSugestoesSLA()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-black py-2.5 px-5 rounded-lg shadow-sm text-sm transition flex items-center gap-2 transform hover:-translate-y-0.5">✨ Preencher com Inteligência do Sistema</button>
+            <div class="flex gap-2 items-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-1.5 rounded-lg shadow-sm">
+              <span class="text-xs font-black text-slate-500 mx-2 uppercase tracking-wide">Forçar todos para:</span>
+              <button onclick="forcarTodosParaEtapa(1)" class="bg-slate-100 hover:bg-slate-200 text-slate-700 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-200 text-xs font-bold py-1.5 px-3 rounded transition">Etapa 1</button>
+              <button onclick="forcarTodosParaEtapa(2)" class="bg-amber-100 hover:bg-amber-200 text-amber-800 dark:bg-amber-900/40 dark:hover:bg-amber-800/60 dark:text-amber-400 text-xs font-bold py-1.5 px-3 rounded transition">Etapa 2</button>
+              <button onclick="forcarTodosParaEtapa(3)" class="bg-rose-100 hover:bg-rose-200 text-rose-800 dark:bg-rose-900/40 dark:hover:bg-rose-800/60 dark:text-rose-400 text-xs font-bold py-1.5 px-3 rounded transition">Etapa 3</button>
+            </div>
+          </div>
+          <table class="w-full text-left border-collapse bg-white dark:bg-slate-900 rounded-lg overflow-hidden shadow-sm border border-slate-200 dark:border-slate-700">
+            <thead class="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[11px] uppercase font-black tracking-wider">
+              <tr>
+                <th class="p-3 border-b border-slate-200 dark:border-slate-700">Cliente / Veículo</th>
+                <th class="p-3 border-b border-slate-200 dark:border-slate-700 text-center">Etapa Atual</th>
+                <th class="p-3 border-b border-slate-200 dark:border-slate-700 text-center">Dias na Fila</th>
+                <th class="p-3 border-b border-slate-200 dark:border-slate-700 text-center">Sugestão (SLA)</th>
+                <th class="p-3 border-b border-slate-200 dark:border-slate-700 text-center">Nova Etapa</th>
+              </tr>
+            </thead>
+            <tbody id="corpo-migracao"></tbody>
+          </table>
+        </div>
+        <div class="bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-700 p-5 flex justify-end gap-3 z-10">
+          <button onclick="fecharModalMigracao()" class="px-5 py-2.5 bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition">Cancelar Operação</button>
+          <button id="btn-confirmar-migracao" onclick="confirmarMigracaoEtapas()" class="px-6 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 transition shadow-lg shadow-indigo-200 dark:shadow-none flex items-center gap-2">🔄 Executar Migração no Banco</button>
+        </div>
+      </div>
+    </div>`;
+
+    window.onload = () => {
+      document.body.insertAdjacentHTML('beforeend', modalMigracaoHTML);
+      if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) { document.documentElement.classList.add('dark'); document.getElementById('theme-icon').innerText = '☀️'; }
+      const logado = checarSessaoAtiva(); 
+      if (logado) {
+          if (VIEW_PARAM === 'fila') { document.getElementById('sidebar').classList.add('hidden'); navegarFila(null); } 
+          else if (VIEW_PARAM === 'dash') { document.getElementById('sidebar').classList.add('hidden'); navegar('tela-dashboard', null); } 
+          else { navegar('tela-manual', document.getElementById('btn-nav-manual')); }
+      }
+      setTimeout(verificarStatusAPIs, 1000); 
+    };
+
+    function verificarStatusAPIs() {
+      const dotHinova = document.getElementById('dot-hinova'), hoverHinova = document.getElementById('hover-hinova'), dotViaCep = document.getElementById('dot-viacep'), hoverViaCep = document.getElementById('hover-viacep');
+      if(!dotHinova || !dotViaCep) return;
+      dotHinova.className = "w-3 h-3 rounded-full bg-slate-400 animate-pulse shadow-sm cursor-wait"; hoverHinova.innerHTML = "<div class='flex items-center gap-2 mb-1'><span class='text-slate-400'>📡</span> <b>Hinova (SGA)</b></div><span class='text-slate-400'>Aguardando...</span>";
+      dotViaCep.className = "w-3 h-3 rounded-full bg-slate-400 animate-pulse shadow-sm cursor-wait"; hoverViaCep.innerHTML = "<div class='flex items-center gap-2 mb-1'><span class='text-slate-400'>📮</span> <b>ViaCEP</b></div><span class='text-slate-400'>Aguardando...</span>";
+
+      const startViaCep = performance.now();
+      fetch('https://viacep.com.br/ws/01001000/json/').then(res => { const t = Math.round(performance.now() - startViaCep); if (res.ok) { dotViaCep.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-md shadow-emerald-500/40"; hoverViaCep.innerHTML = `<div class='flex items-center gap-2 mb-1'><span class='text-emerald-400'>🟢</span> <b>ViaCEP Online</b></div><div class='mt-2 text-[10px] text-emerald-400/70 font-mono'>Ping: ${t}ms</div>`; } else throw new Error(res.status); }).catch(e => { dotViaCep.className = "w-3 h-3 rounded-full bg-rose-500 shadow-md shadow-rose-500/40 animate-bounce"; hoverViaCep.innerHTML = `<div class='flex items-center gap-2 mb-1'><span class='text-rose-500'>🔴</span> <b>ViaCEP Offline</b></div>`; });
+      google.script.run.withSuccessHandler(res => { if (res && res.hinova) { dotHinova.className = "w-3 h-3 rounded-full bg-emerald-500 shadow-md shadow-emerald-500/40"; hoverHinova.innerHTML = `<div class='flex items-center gap-2 mb-1'><span class='text-emerald-400'>🟢</span> <b>Hinova (SGA)</b></div><div class='mt-2 text-[10px] text-emerald-400/70 font-mono'>Ping: ${res.tempo}ms</div>`; } else { dotHinova.className = "w-3 h-3 rounded-full bg-rose-500 shadow-md shadow-rose-500/40 animate-bounce"; hoverHinova.innerHTML = `<div class='flex items-center gap-2 mb-1'><span class='text-rose-500'>🔴</span> <b>Hinova Falhou</b></div>`; } }).web_testarAPIs();
+    }
+</script>

@@ -1,0 +1,22 @@
+<style>
+  .loader { border-top-color: #6366f1; animation: spinner 1s linear infinite; }
+  @keyframes spinner { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  .nav-btn { color: #94a3b8; transition: all 0.2s ease-in-out; }
+  .nav-btn:hover { background-color: #1e293b; color: white; }
+  .nav-btn.active { background-color: #4f46e5; color: white; box-shadow: 0 4px 12px rgba(79, 70, 229, 0.3); }
+  ::-webkit-scrollbar { height: 8px; width: 8px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 99px; }
+  .dark ::-webkit-scrollbar-thumb { background: #475569; }
+  .sort-icon { display: inline-block; width: 12px; margin-left: 4px; color: #94a3b8; transition: transform 0.2s; }
+  .sort-active { color: #6366f1; font-weight: bold; }
+  .dark .sort-active { color: #818cf8; }
+  .toggle-checkbox:checked { right: 0; border-color: transparent; }
+  .toggle-checkbox { right: 0; z-index: 1; border-color: #e2e8f0; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+  .dark .toggle-checkbox { border-color: #334155; background-color: #94a3b8; }
+  .toggle-label { width: 36px; height: 20px; background-color: #e2e8f0; border-radius: 9999px; transition: all 0.3s; cursor: pointer; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); }
+  .dark .toggle-label { background-color: #334155; }
+  .table-row-anim { transition: background-color 0.15s ease; }
+  .linha-moto { background-color: #ecfdf5 !important; }
+  .dark .linha-moto { background-color: rgba(16, 185, 129, 0.1) !important; border-bottom: 1px solid rgba(16, 185, 129, 0.2); }
+</style>

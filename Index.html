@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="pt-BR" class="antialiased">
+<head>
+  <meta charset="UTF-8">
+  <title>SGCW - Sistema de Gestão de Comunicação Web</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const APP_URL = "<?!= typeof urlApp !== 'undefined' ? urlApp : '' ?>";
+    const VIEW_PARAM = "<?!= typeof viewParam !== 'undefined' ? viewParam : '' ?>";
+    tailwind.config = { darkMode: 'class', theme: { extend: { colors: { darkbg: '#0f172a', darkcard: '#1e293b', darkborder: '#334155' } } } }
+  </script>
+  <?!= include('Estilos'); ?>
+</head>
+<body class="bg-slate-50 text-slate-800 dark:bg-darkbg dark:text-slate-200 font-sans h-screen flex overflow-hidden transition-colors duration-300">
+
+  <div id="tela-login-overlay" class="fixed inset-0 bg-slate-900 z-[9999] flex flex-col items-center justify-center p-4 transition-opacity duration-500">
+    <div class="bg-white dark:bg-darkcard rounded-3xl shadow-2xl w-full max-w-md p-8 border border-slate-200 dark:border-slate-800 animate-[fadeIn_0.3s_ease-out]">
+      <div class="text-center mb-8">
+        <h1 class="text-3xl font-black text-indigo-600 dark:text-indigo-400 tracking-tight mb-2">SGCW</h1>
+        <p class="text-xs text-slate-500 font-bold uppercase tracking-widest">Acesso Operacional</p>
+      </div>
+      <div class="space-y-5">
+        <div>
+          <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wider">Seu Login</label>
+          <input type="text" id="login-user" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition" placeholder="Digite seu usuário...">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wider">Sua Senha</label>
+          <input type="password" id="login-pass" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition" placeholder="••••••••" onkeypress="if(event.key === 'Enter') executarLogin()">
+        </div>
+        <button onclick="executarLogin()" id="btn-login" class="w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-black text-sm transition shadow-lg shadow-indigo-200 dark:shadow-none transform hover:-translate-y-0.5 mt-2">Acessar Sistema</button>
+      </div>
+      <div id="login-erro" class="mt-4 text-center text-rose-500 text-xs font-bold hidden bg-rose-50 dark:bg-rose-900/30 p-2 rounded-lg border border-rose-200 dark:border-rose-800/50"></div>
+    </div>
+    <p class="mt-6 text-slate-500 text-[10px] font-medium uppercase tracking-widest">Inteligência Logística • Zen Seguros</p>
+  </div>
+
+  <div id="modal-troca-senha" class="fixed inset-0 bg-slate-900/95 z-[9999] hidden flex-col items-center justify-center p-4 transition-opacity duration-500">
+    <div class="bg-white dark:bg-darkcard rounded-3xl shadow-2xl w-full max-w-md p-8 border border-slate-200 dark:border-slate-800 animate-[fadeIn_0.3s_ease-out]">
+      <div class="text-center mb-6">
+        <div class="text-4xl mb-3">🔒</div>
+        <h2 class="text-2xl font-black text-slate-800 dark:text-white tracking-tight mb-2">Atualize sua Senha</h2>
+        <p class="text-sm text-slate-500 dark:text-slate-400">Por segurança, você precisa alterar a senha padrão no seu primeiro acesso ao SGCW.</p>
+      </div>
+      <div class="space-y-4">
+        <div>
+          <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wider">Nova Senha Pessoal</label>
+          <input type="password" id="ipt-nova-senha" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition" placeholder="Mínimo de 6 caracteres">
+        </div>
+        <div>
+          <label class="block text-xs font-bold text-slate-500 dark:text-slate-400 mb-1 uppercase tracking-wider">Confirmar Nova Senha</label>
+          <input type="password" id="ipt-confirma-senha" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl p-3 text-sm outline-none focus:ring-2 focus:ring-indigo-500 dark:text-white transition" placeholder="Repita a senha">
+        </div>
+        <button onclick="confirmarTrocaDeSenha()" id="btn-trocar-senha" class="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-black text-sm transition shadow-lg mt-4">Salvar e Acessar</button>
+      </div>
+      <div id="troca-senha-erro" class="mt-4 text-center text-rose-500 text-xs font-bold hidden bg-rose-50 dark:bg-rose-900/30 p-2 rounded-lg border border-rose-200 dark:border-rose-800/50"></div>
+    </div>
+  </div>
+
+  <div id="modal-erro-critico" class="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-[300] hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-darkcard rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden animate-[fadeIn_0.2s_ease-out]">
+      <div class="p-6 border-b border-red-200 dark:border-red-900/50 bg-red-600 text-white flex justify-between items-center">
+        <h2 class="text-xl font-black">❌ Diagnóstico de Erro</h2>
+        <button onclick="document.getElementById('modal-erro-critico').classList.add('hidden')" class="text-white/70 hover:text-white transition text-xl">✖</button>
+      </div>
+      <div class="p-6">
+        <p class="text-sm text-slate-600 dark:text-slate-400 mb-3">Ocorreu uma falha no servidor do Google. Copie o código abaixo e envie ao Engenheiro para correção:</p>
+        <textarea id="texto-erro-critico" class="w-full h-40 bg-slate-100 dark:bg-slate-900 text-red-600 dark:text-red-400 font-mono text-xs p-4 rounded-lg border border-slate-300 dark:border-slate-700 focus:outline-none" readonly></textarea>
+        <button onclick="copiarErroCritico()" class="mt-4 px-4 py-2 bg-slate-200 dark:bg-slate-700 font-bold rounded hover:bg-slate-300 dark:hover:bg-slate-600 transition">📋 Copiar Erro</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-preview-emails" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-darkcard rounded-2xl shadow-2xl w-full max-w-6xl flex flex-col overflow-hidden animate-[fadeIn_0.2s_ease-out]">
+      <div class="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center transition-colors duration-300 bg-indigo-600" id="header-modal-preview">
+        <h2 class="text-xl font-black text-white" id="titulo-modal-preview">👀 Validação e Disparo</h2>
+        <button onclick="fecharModalPreview()" class="text-white/70 hover:text-white transition text-xl">✖</button>
+      </div>
+      <div class="p-6 overflow-y-auto max-h-[70vh]">
+        <p class="text-sm text-slate-600 dark:text-slate-400 mb-4" id="desc-modal-preview">Revise e envie os comunicados pendentes.</p>
+        <div id="preview-emails-body" class="space-y-6"></div>
+      </div>
+      <div class="p-6 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3" id="footer-modal-preview"></div>
+    </div>
+  </div>
+
+  <div id="modal-progresso" class="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-[400] hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-darkcard rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-[fadeIn_0.2s_ease-out]">
+      <div class="p-6 text-center">
+        <h2 class="text-xl font-black text-slate-800 dark:text-white mb-2">Processando Automação...</h2>
+        <p id="desc-progresso" class="text-sm text-slate-500 dark:text-slate-400 mb-6">Iniciando comunicação com a API...</p>
+        <div class="w-full bg-slate-200 dark:bg-slate-700 rounded-full h-4 mb-2 overflow-hidden">
+          <div id="barra-progresso" class="bg-indigo-600 h-4 rounded-full transition-all duration-300 w-0 relative"><div class="absolute inset-0 bg-white/20 animate-[pulse_1s_ease-in-out_infinite]"></div></div>
+        </div>
+        <div class="flex justify-between text-xs font-bold text-slate-600 dark:text-slate-300"><span id="contador-progresso">0 / 0</span><span id="percentual-progresso">0%</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="modal-edicao-cliente" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[300] hidden flex items-center justify-center p-4">
+    <div class="bg-white dark:bg-darkcard rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col overflow-hidden animate-[fadeIn_0.2s_ease-out]">
+      <div class="p-5 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-indigo-600">
+        <h2 class="text-lg font-black text-white" id="titulo-modal-edicao">✏️ Editar Dados do Cliente</h2>
+        <button onclick="fecharModalEdicaoCliente()" class="text-indigo-200 hover:text-white transition text-xl">✖</button>
+      </div>
+      <div class="p-6 flex flex-col gap-4 overflow-y-auto max-h-[75vh]">
+        <input type="hidden" id="ipt-edit-idUnico">
+        <div><label class="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Nome Completo</label><input type="text" id="ipt-edit-nome" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded p-2.5 text-sm dark:text-white outline-none focus:border-indigo-500"></div>
+        <div class="grid grid-cols-2 gap-4">
+          <div><label class="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Placa</label><input type="text" id="ipt-edit-placa" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded p-2.5 text-sm dark:text-white outline-none focus:border-indigo-500 uppercase"></div>
+          <div><label class="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Chassi</label><input type="text" id="ipt-edit-chassi" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded p-2.5 text-sm dark:text-white outline-none focus:border-indigo-500 uppercase"></div>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+          <div><label class="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">E-mail</label><input type="email" id="ipt-edit-email" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded p-2.5 text-sm dark:text-white outline-none focus:border-indigo-500 lowercase"></div>
+          <div><label class="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Telefone (WhatsApp)</label><input type="text" id="ipt-edit-telefone" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded p-2.5 text-sm dark:text-white outline-none focus:border-indigo-500"></div>
+        </div>
+        <div><label class="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Valor FIPE (Opcional)</label><input type="text" id="ipt-edit-fipe" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded p-2.5 text-sm dark:text-white outline-none focus:border-indigo-500"></div>
+      </div>
+      <div class="p-5 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/50 flex justify-end gap-3">
+        <button onclick="fecharModalEdicaoCliente()" class="px-5 py-2.5 bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold rounded-lg hover:bg-slate-300 dark:hover:bg-slate-600 transition">Cancelar</button>
+        <button onclick="salvarEdicaoCliente()" id="btn-salvar-edicao-cli" class="px-6 py-2.5 bg-emerald-600 text-white font-bold rounded-lg hover:bg-emerald-700 transition shadow-md flex items-center gap-2">💾 Salvar Alterações</button>
+      </div>
+    </div>
+  </div>
+
+  <aside id="sidebar" class="w-64 bg-slate-900 flex flex-col shadow-2xl z-20 flex-shrink-0 border-r border-slate-800 dark:border-black transition-all duration-300">
+    <div class="p-6 border-b border-slate-800 flex justify-between items-center">
+      <div>
+        <h1 class="text-2xl font-black text-indigo-400 tracking-tight">SGCW</h1>
+        <p class="text-[10px] text-slate-400 font-medium leading-tight mt-1 uppercase tracking-widest">Inteligência Logística</p>
+      </div>
+      <button onclick="toggleDarkMode()" class="p-2 rounded-full hover:bg-slate-800 transition" title="Alternar Modo Escuro"><span id="theme-icon" class="text-xl">🌙</span></button>
+    </div>
+    <nav class="flex-1 overflow-y-auto px-3 py-6 space-y-1">
+      <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-3 mb-3">Visão Geral</p>
+      <button id="btn-nav-manual" onclick="navegar('tela-manual', this)" class="nav-btn active w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium">📖 Manual Rápido</button>
+      <button onclick="navegar('tela-dashboard', this)" class="nav-btn w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium">📊 Dashboard BI</button>
+      
+      <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-3 mb-3 mt-8">Operação</p>
+      <button onclick="navegarFila(this)" class="nav-btn w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium">📥 Fila Unificada</button>
+      <button onclick="navegarCancelamento(this)" class="nav-btn w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium text-rose-500 dark:text-rose-400 hover:bg-slate-800 transition">🚫 Cancelamentos</button>
+      <button onclick="navegar('tela-cadastro', this)" class="nav-btn w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium">➕ Importar Lote SGA</button>
+      
+      <p class="text-[10px] font-bold text-slate-500 uppercase tracking-wider px-3 mb-3 mt-8">Administração</p>
+      <button onclick="navegar('tela-ferramentas', this)" class="nav-btn w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium">🛠️ Automações Globais</button>
+      <button onclick="navegar('tela-config', this)" class="nav-btn w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium">⚙️ Configurar Textos</button>
+      <button onclick="navegar('tela-logs', this)" class="nav-btn w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium">🗄️ Central de Logs</button>
+      <button onclick="navegar('tela-tecnicos', this)" class="nav-btn w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium">👨‍🔧 Gestão de Técnicos</button>
+      <button id="btn-nav-usuarios" onclick="navegar('tela-usuarios', this)" class="nav-btn w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium hidden">👥 Gestão de Usuários</button>
+    </nav>
+    <div class="p-4 border-t border-slate-200 dark:border-slate-800 shrink-0 bg-slate-100 dark:bg-slate-900/50 flex flex-col gap-4">
+      <div class="flex justify-between items-center">
+         <div class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status API</div>
+         <div class="flex items-center gap-3">
+           <div class="group relative flex items-center justify-center cursor-help"><div id="dot-hinova" class="w-3 h-3 rounded-full bg-slate-400 animate-pulse shadow-sm"></div><div id="hover-hinova" class="opacity-0 invisible group-hover:opacity-100 group-hover:visible absolute bottom-full left-0 mb-3 w-56 p-3 bg-slate-800 dark:bg-black text-white text-xs rounded-xl shadow-xl transition-all duration-200 z-50 border border-slate-700 whitespace-pre-wrap font-medium">Testando Hinova...</div></div>
+           <div class="group relative flex items-center justify-center cursor-help"><div id="dot-viacep" class="w-3 h-3 rounded-full bg-slate-400 animate-pulse shadow-sm"></div><div id="hover-viacep" class="opacity-0 invisible group-hover:opacity-100 group-hover:visible absolute bottom-full left-0 mb-3 w-56 p-3 bg-slate-800 dark:bg-black text-white text-xs rounded-xl shadow-xl transition-all duration-200 z-50 border border-slate-700 whitespace-pre-wrap font-medium">Testando ViaCEP...</div></div>
+           <button onclick="verificarStatusAPIs()" class="ml-1 text-slate-400 hover:text-indigo-500 transition" title="Forçar re-teste das conexões"><svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-4 h-4"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7M4.031 9.865a8.25 8.25 0 0 1 13.803-3.7l3.181 3.182m0-4.991v4.99" /></svg></button>
+         </div>
+      </div>
+      <button onclick="fazerLogout()" class="w-full py-2 bg-slate-800 hover:bg-rose-600 text-slate-400 hover:text-white rounded-lg text-xs font-bold transition flex justify-center items-center gap-2"><span>🚪</span> Sair do Sistema</button>
+    </div>
+  </aside>
+
+  <main class="flex-1 h-full relative flex flex-col min-w-0 overflow-hidden bg-slate-50 dark:bg-darkbg">
+    <div id="toast" class="fixed top-6 left-1/2 -translate-x-1/2 bg-slate-900 dark:bg-black text-white px-6 py-4 rounded-xl shadow-2xl hidden z-50 transform transition-all font-medium border border-slate-700 dark:border-slate-800 whitespace-pre-line leading-relaxed flex items-center gap-3"></div>
+
+    <div id="tela-manual" class="h-full hidden flex-col p-8 overflow-y-auto">
+      <div class="max-w-5xl mx-auto w-full shrink-0">
+        <div class="bg-indigo-600 dark:bg-indigo-700 text-white rounded-t-3xl p-10 shadow-lg relative overflow-hidden">
+          <div class="relative z-10">
+            <h2 class="text-4xl font-black mb-3 tracking-tight">Guia Rápido de Operação</h2>
+            <p class="text-indigo-100 font-medium text-lg max-w-2xl">Bem-vindo ao SGCW. Entenda como extrair o máximo da inteligência do sistema para otimizar sua rotina.</p>
+          </div>
+          <div class="absolute -right-10 -top-10 text-9xl opacity-20 select-none">📖</div>
+        </div>
+        <div class="bg-white dark:bg-darkcard rounded-b-3xl shadow-xl border border-slate-200 dark:border-darkborder p-8 mb-6 grid grid-cols-1 md:grid-cols-2 gap-8">
+           <div>
+             <h3 class="text-xl font-black text-slate-800 dark:text-white mb-4 border-b border-slate-100 dark:border-slate-800 pb-2 flex items-center gap-2"><span class="text-emerald-500">📥</span> 1. Fila Unificada & Disparos</h3>
+             <ul class="space-y-3 text-sm text-slate-600 dark:text-slate-400">
+               <li><strong class="text-slate-800 dark:text-slate-200">Visão Geral:</strong> Exibe os clientes pendentes. Os filtros no topo ajudam a focar por Etapa ou Status.</li>
+               <li><strong class="text-slate-800 dark:text-slate-200">Pipeline de Disparo:</strong> A automação usa uma esteira em duas fases: primeiro dispara os e-mails em lote, depois organiza a tela para os envios de WhatsApp um a um.</li>
+               <li><strong class="text-slate-800 dark:text-slate-200">Ícones Interativos:</strong> Passe o mouse sobre os emojis na tabela para ver dados detalhados.</li>
+             </ul>
+           </div>
+           <div>
+             <h3 class="text-xl font-black text-slate-800 dark:text-white mb-4 border-b border-slate-100 dark:border-slate-800 pb-2 flex items-center gap-2"><span class="text-blue-500">➕</span> 2. Importar Lote SGA</h3>
+             <ul class="space-y-3 text-sm text-slate-600 dark:text-slate-400">
+               <li><strong class="text-slate-800 dark:text-slate-200">Como usar:</strong> Copie as linhas diretamente do Hinova e cole na caixa de texto.</li>
+               <li><strong class="text-slate-800 dark:text-slate-200">Inteligência:</strong> O SGCW limpa "sujeiras" do texto e extrai tudo automaticamente.</li>
+             </ul>
+           </div>
+           <div>
+             <h3 class="text-xl font-black text-slate-800 dark:text-white mb-4 border-b border-slate-100 dark:border-slate-800 pb-2 flex items-center gap-2"><span class="text-purple-500">🛠️</span> 3. Automações Globais</h3>
+             <ul class="space-y-3 text-sm text-slate-600 dark:text-slate-400">
+               <li><strong class="text-slate-800 dark:text-slate-200">Sincronizar Gmail:</strong> Varre a caixa e marca clientes cujo e-mail retornou falha (Mailer Daemon).</li>
+               <li><strong class="text-slate-800 dark:text-slate-200">Central de Logs:</strong> Cruza todas as planilhas e exibe um Raio-X com a situação oficial.</li>
+             </ul>
+           </div>
+           <div>
+             <h3 class="text-xl font-black text-slate-800 dark:text-white mb-4 border-b border-slate-100 dark:border-slate-800 pb-2 flex items-center gap-2"><span class="text-rose-500">🚫</span> 4. Fila de Cancelamentos</h3>
+             <ul class="space-y-3 text-sm text-slate-600 dark:text-slate-400">
+               <li><strong class="text-slate-800 dark:text-slate-200">Banco Independente:</strong> Use o botão "Puxar Inativos" para varrer a esteira e transferir automaticamente quem não for mais "Ativo" no SGA.</li>
+               <li><strong class="text-slate-800 dark:text-slate-200">Disparos Próprios:</strong> Possui um motor de envio de WhatsApp espelhado, focado apenas na retenção ou avisos de cancelamento.</li>
+             </ul>
+           </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tela-etapa" class="h-full hidden flex-col p-4 overflow-hidden">
+      <header class="bg-white dark:bg-darkcard shadow-sm p-3 flex justify-between items-center border border-slate-200 dark:border-darkborder rounded-xl shrink-0 relative z-[100] mb-2">
+        <div class="flex flex-col">
+          <div class="flex items-center gap-3">
+             <h2 class="text-lg font-black text-slate-800 dark:text-white tracking-tight">Caixa de Entrada</h2>
+             <button onclick="abrirNovaAba('fila')" class="text-[9px] font-black uppercase tracking-wider bg-indigo-100 text-indigo-700 dark:bg-indigo-900/50 dark:text-indigo-400 px-2 py-0.5 rounded-md hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition shadow-sm">↗️ Foco</button>
+          </div>
+          <p class="text-xs text-slate-500 dark:text-slate-400 font-medium"><span id="contadorSel" class="font-bold text-indigo-600 dark:text-indigo-400 text-sm">0</span> marcados na memória</p>
+        </div>
+        <div class="flex gap-2 items-center whitespace-nowrap flex-nowrap">
+          <button onclick="dispararImpressaoFila()" class="px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg font-bold shadow-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1.5 border border-slate-300 dark:border-slate-600 mr-2">🖨️ Imprimir</button>
+          <div class="relative">
+            <button onclick="toggleMenu('menu-automacao', event)" class="px-3 py-1.5 text-sm bg-slate-800 dark:bg-slate-700 text-white rounded-lg font-bold shadow-sm hover:bg-slate-700 dark:hover:bg-slate-600 transition flex items-center gap-1.5">⚡ Automação Lote ▾</button>
+         <div id="menu-automacao" class="menu-flutuante absolute right-0 mt-2 w-60 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 hidden z-50 text-sm overflow-hidden transition-opacity duration-200">
+              <div class="px-4 py-2 bg-slate-50 dark:bg-slate-900 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider border-b border-slate-200 dark:border-slate-700">Aplica aos marcados:</div>
+              <button onclick="varrerConcluidosSelecionados()" class="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700/50 flex items-center gap-3 dark:text-slate-200 font-medium transition text-emerald-600 dark:text-emerald-400 font-bold"><span class="text-base">✅</span> Varrer Concluídos (SGA)</button>
+              <button onclick="rodarFerramentaLote('logistica')" class="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700/50 flex items-center gap-3 dark:text-slate-200 font-medium transition"><span class="text-base">🛰️</span> Calcular Melhor Rota</button>
+              <button onclick="rodarFerramentaLote('estados')" class="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700/50 flex items-center gap-3 dark:text-slate-200 font-medium transition"><span class="text-base">📍</span> Atualizar Localização</button>
+              <button onclick="rodarFerramentaLote('motos')" class="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700/50 flex items-center gap-3 dark:text-slate-200 font-medium transition"><span class="text-base">🏍️</span> Destacar Motos</button>
+              <button onclick="rodarFerramentaLote('fipe')" class="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700/50 flex items-center gap-3 dark:text-slate-200 font-medium transition"><span class="text-base">💰</span> Verif. Fipe (Lote)</button>
+              <button onclick="rodarFerramentaLote('inativos')" class="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700/50 flex items-center gap-3 dark:text-slate-200 font-medium transition"><span class="text-base">🟣</span> Auditar Inativos</button>
+              <button onclick="rodarFerramentaLote('completar')" class="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 flex items-center gap-3 dark:text-slate-200 font-medium transition"><span class="text-base">📝</span> Completar Dados</button>
+            </div>
+          </div>
+          <button onclick="carregarFilaGeral()" class="px-3 py-1.5 text-sm bg-white dark:bg-darkcard text-slate-700 dark:text-slate-200 rounded-lg font-bold border border-slate-300 dark:border-slate-600 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center gap-1.5">🔄 Sincronizar</button>
+          
+          <div class="flex items-center bg-slate-100 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 shadow-sm h-full" id="bloco-responsavel"></div>
+
+          <div class="relative ml-1">
+            <button onclick="toggleMenu('menu-acoes', event)" class="px-4 py-1.5 text-sm bg-indigo-600 text-white rounded-lg font-bold shadow-sm shadow-indigo-200 dark:shadow-none hover:bg-indigo-700 transition flex items-center gap-1.5">Ações Finais ▾</button>
+            <div id="menu-acoes" class="menu-flutuante absolute right-0 mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 hidden z-50 text-sm overflow-hidden transition-opacity duration-200">
+              <button onclick="dispararLote()" class="w-full text-left px-4 py-3 hover:bg-indigo-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700/50 text-indigo-700 dark:text-indigo-400 font-black transition flex items-center gap-2"><span class="text-lg">🚀</span> Ver Prévias e Disparar</button>
+              <button onclick="marcarLoteSemEnviar()" class="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold transition flex items-center gap-2"><span class="text-lg">✔️</span> Apenas Marcar</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="bg-white dark:bg-darkcard shadow-sm border border-slate-200 dark:border-darkborder rounded-t-xl p-2 flex flex-col md:flex-row justify-between items-center gap-3 z-10 relative border-b-0 shrink-0 overflow-x-auto">
+        <div class="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+          <select id="filtroFila" onchange="aplicarFiltrosEOrdenacao()" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs rounded-md py-2 px-2 font-bold focus:outline-none cursor-pointer shadow-sm min-w-max"><option value="todos">📋 Mostrar Todos</option><option value="pendentes" selected>🟠 Pendentes</option><option value="erros">❌ Erros</option><option value="inativos">🟣 Inativos</option><option value="enviados">🟢 Enviados</option></select>
+          <select id="filtroEtapa" onchange="aplicarFiltrosEOrdenacao()" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs rounded-md py-2 px-2 font-bold focus:outline-none cursor-pointer shadow-sm min-w-max"><option value="todas">Todas as Etapas</option><option value="1">🔰 Boas Vindas</option><option value="2">⚠️ Alerta 5d</option><option value="3">⛔ Prazo Exp</option></select>
+          <select id="filtroTrava" onchange="aplicarFiltrosEOrdenacao()" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs rounded-md py-2 px-2 font-bold focus:outline-none cursor-pointer shadow-sm min-w-max"><option value="todos" selected>🔒 Trava: Todos</option><option value="livres">🔓 Ocultar Travados</option><option value="travados">🔒 Apenas Travados</option></select>
+        </div>
+        <div class="relative flex items-center w-full md:w-72 shrink-0">
+            <span class="absolute left-3 text-slate-400 dark:text-slate-500 text-sm">🔍</span>
+            <input type="text" id="ipt-busca-fila" placeholder="Buscar Cliente, Placa ou Chassi..." oninput="aplicarFiltrosEOrdenacao()" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 pl-9 pr-3 py-2 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition shadow-sm placeholder-slate-400 dark:placeholder-slate-500">
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-darkcard shadow-sm border border-slate-200 dark:border-darkborder overflow-y-auto flex-1 relative print:border-none">
+        <div id="loading-fila" class="flex flex-col items-center justify-center py-20 gap-4 text-indigo-600 dark:text-indigo-400 font-bold hidden"><div class="loader rounded-full border-4 h-10 w-10 border-r-transparent"></div> Baixando Fila Mestre...</div>
+        <table id="tabela-fila" class="min-w-max w-full text-left text-sm hidden border-collapse print:w-full">
+          <thead class="bg-slate-100 dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 sticky top-0 z-20 shadow-sm print:static print:bg-white print:text-black">
+            <tr class="text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider select-none font-bold">
+              <th class="py-2 px-3 w-10 text-center print:hidden"><input type="checkbox" id="chk-master" onchange="marcarTodosGeral(this)" class="w-4 h-4 rounded text-indigo-600 cursor-pointer"></th>
+              <th class="py-2 px-4 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition" onclick="setSort('etapaNum')">Etapa <span id="sort-etapaNum" class="sort-icon"></span></th>
+              <th class="py-2 px-4 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition" onclick="setSort('nome')">Cliente <span id="sort-nome" class="sort-icon"></span></th>
+              <th class="py-2 px-4 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition" onclick="setSort('placa')">Veículo / FIPE <span id="sort-placa" class="sort-icon"></span></th>
+              <th class="py-2 px-4 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition" onclick="setSort('dataPlanilha')">Datas <span id="sort-dataPlanilha" class="sort-icon"></span></th>
+              <th class="py-2 px-4">Contato (E-mail/Whats)</th>
+              <th class="py-2 px-4 bg-amber-50/50 dark:bg-amber-900/10">Localização</th>
+              <th class="py-2 px-4 bg-purple-50/50 dark:bg-purple-900/10">Logística</th>
+              <th class="py-2 px-3 bg-rose-50/50 dark:bg-rose-900/10 text-center print:hidden">Fipe Baixa?</th>
+              <th class="py-2 px-3 bg-blue-50/50 dark:bg-blue-900/10 text-center print:hidden">Resp. Email</th>
+              <th class="py-2 px-3 bg-emerald-50/50 dark:bg-emerald-900/10 text-center print:hidden">Resp. Whats</th>
+            </tr>
+          </thead>
+          <tbody id="corpo-fila" class="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300"></tbody>
+        </table>
+      </div>
+
+      <div id="paginacaoBox" class="flex justify-between items-center py-2 px-5 bg-slate-50 dark:bg-slate-900/50 border border-t-0 border-slate-200 dark:border-darkborder rounded-b-xl shadow-sm shrink-0 hidden">
+         <div class="flex items-center gap-4"><div class="flex items-center gap-2"><span class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Mostrar:</span><select id="selectRowsPerPage" onchange="mudarPaginacao()" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs rounded-md py-1 px-2 font-bold focus:outline-none cursor-pointer shadow-sm"><option value="50">50 Linhas</option><option value="100">100 Linhas</option><option value="200">200 Linhas</option><option value="todos">Todos</option></select></div><div class="h-4 w-px bg-slate-200 dark:bg-slate-700"></div><span id="pageInfo" class="text-sm font-medium text-slate-600 dark:text-slate-300">Mostrando 0 a 0 de 0</span></div>
+         <div class="flex gap-2"><button onclick="prevPage()" id="btnPrev" class="px-4 py-1 border border-slate-300 dark:border-slate-600 rounded-md text-xs font-black text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-slate-800 shadow-sm">◀ Ant</button><button onclick="nextPage()" id="btnNext" class="px-4 py-1 border border-slate-300 dark:border-slate-600 rounded-md text-xs font-black text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-slate-800 shadow-sm">Próx ▶</button></div>
+      </div>
+    </div>
+
+    <div id="tela-cancelamento" class="h-full hidden flex-col p-4 overflow-hidden">
+      <header class="bg-white dark:bg-darkcard shadow-sm p-3 flex justify-between items-center border border-slate-200 dark:border-darkborder rounded-xl shrink-0 z-[100] relative mb-2">
+        <div class="flex flex-col">
+          <div class="flex items-center gap-3"><h2 class="text-lg font-black text-rose-600 dark:text-rose-400 tracking-tight">Fila de Cancelamentos</h2></div>
+          <p class="text-xs text-slate-500 dark:text-slate-400 font-medium"><span id="contadorSelCanc" class="font-bold text-rose-600 dark:text-rose-400 text-sm">0</span> marcados na memória</p>
+        </div>
+        <div class="flex gap-2 items-center">
+          <div class="relative">
+            <button onclick="toggleMenu('menu-auto-canc', event)" class="px-3 py-1.5 text-sm bg-slate-800 dark:bg-slate-700 text-white rounded-lg font-bold shadow-sm hover:bg-slate-700 transition flex items-center gap-1.5">⚡ Automação Lote ▾</button>
+            <div id="menu-auto-canc" class="menu-flutuante absolute right-0 mt-2 w-56 bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-slate-200 dark:border-slate-700 hidden z-50 text-sm overflow-hidden transition-opacity duration-200">
+               <button onclick="rodarAutomacaoCanc('completar')" class="w-full text-left px-4 py-3 hover:bg-slate-50 dark:hover:bg-slate-700 border-b border-slate-100 dark:border-slate-700/50 flex items-center gap-3 dark:text-slate-200 font-medium transition"><span class="text-base">📝</span> Completar Dados SGA</button>
+            </div>
+          </div>
+          <button onclick="acionarMigracaoInativos()" class="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-lg font-bold shadow-sm shadow-purple-200 dark:shadow-none hover:bg-purple-700 transition flex items-center gap-1.5">⚡ Puxar Inativos da Fila</button>
+          <button onclick="carregarFilaCancelamento()" class="px-3 py-1.5 text-sm bg-white dark:bg-darkcard text-slate-700 dark:text-slate-200 rounded-lg font-bold border border-slate-300 dark:border-slate-600 shadow-sm hover:bg-slate-50 transition flex items-center gap-1.5">🔄 Sincronizar API</button>
+          <button onclick="dispararLoteCancelamento()" class="px-4 py-1.5 text-sm bg-rose-600 text-white rounded-lg font-bold shadow-sm shadow-rose-200 dark:shadow-none hover:bg-rose-700 transition flex items-center gap-1.5">🚀 Disparar Cancelamento</button>
+        </div>
+      </header>
+
+      <div class="bg-white dark:bg-darkcard shadow-sm border border-slate-200 dark:border-darkborder rounded-t-xl p-2 flex justify-between items-center z-10 relative border-b-0 shrink-0 overflow-x-auto">
+        <div class="flex items-center gap-2 w-full md:w-auto overflow-x-auto pb-1 md:pb-0">
+          <select id="filtroStatusCanc" onchange="aplicarFiltrosCancelamento()" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs rounded-md py-2 px-2 font-bold focus:outline-none cursor-pointer shadow-sm min-w-max">
+             <option value="alvos" selected>🎯 Apenas Cancelados/Pendentes</option>
+             <option value="todos">📋 Mostrar Todos os Inativos</option>
+          </select>
+        </div>
+        <div class="relative flex items-center w-full md:w-96 shrink-0">
+            <span class="absolute left-3 text-slate-400">🔍</span>
+            <input type="text" id="ipt-busca-canc" placeholder="Buscar Cliente, Placa ou Situação..." oninput="aplicarFiltrosCancelamento()" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 pl-9 pr-3 py-2 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-rose-500 transition shadow-sm placeholder-slate-400">
+        </div>
+      </div>
+
+      <div class="bg-white dark:bg-darkcard shadow-sm border border-slate-200 dark:border-darkborder overflow-y-auto flex-1 relative">
+        <div id="loading-canc" class="flex flex-col items-center justify-center py-20 gap-4 text-rose-600 font-bold hidden"><div class="loader rounded-full border-4 h-10 w-10 border-r-transparent border-rose-600"></div> Lendo Base de Cancelamentos...</div>
+        <table id="tabela-canc" class="min-w-max w-full text-left text-sm hidden border-collapse">
+          <thead class="bg-slate-100 dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 sticky top-0 z-20">
+            <tr class="text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider font-bold">
+              <th class="py-2 px-3 w-10 text-center"><input type="checkbox" id="chk-master-canc" onchange="marcarTodosCancelamento(this)" class="w-4 h-4 rounded text-rose-600 cursor-pointer"></th>
+              <th class="py-2 px-4 text-center w-16">Etapa</th>
+              <th class="py-2 px-4">Cliente / Status SGA</th>
+              <th class="py-2 px-4">Veículo / FIPE</th>
+              <th class="py-2 px-4 text-center">Disparos</th>
+              <th class="py-2 px-4">Contato</th>
+              <th class="py-2 px-4 bg-amber-50/50 dark:bg-amber-900/10">UF (Local)</th>
+            </tr>
+          </thead>
+          <tbody id="corpo-canc" class="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tela-dashboard" class="h-full hidden flex-col p-8 overflow-y-auto">
+      <div class="flex justify-between items-center mb-8 shrink-0">
+        <div class="flex items-center gap-4">
+          <div><h2 class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Painel de Controle BI</h2><p class="text-slate-500 dark:text-slate-400 text-sm mt-1">Exportação direta para o Google Slides e cruzamento de dados em tempo real.</p></div>
+        </div>
+        <div class="flex items-center gap-3">
+           <button onclick="gerarApresentacaoSlides()" class="text-amber-600 dark:text-amber-400 text-sm font-bold bg-amber-50 dark:bg-amber-900/30 px-5 py-2.5 rounded-lg border border-amber-200 dark:border-amber-800 shadow-sm hover:shadow transition flex items-center gap-2">📊 Exportar para Slides</button>
+           <button onclick="carregarDashboard()" class="text-indigo-600 dark:text-indigo-400 text-sm font-bold bg-indigo-50 dark:bg-indigo-900/30 px-5 py-2.5 rounded-lg border border-indigo-200 dark:border-indigo-800 shadow-sm hover:shadow transition flex items-center gap-2">🔄 Atualizar Dados</button>
+        </div>
+      </div>
+      <div id="loading-dash" class="flex items-center justify-center p-12 bg-white dark:bg-darkcard rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder mb-6 hidden shrink-0"><div class="loader rounded-full border-4 h-8 w-8 mr-4 border-r-transparent"></div> <span class="text-indigo-600 dark:text-indigo-400 font-bold text-lg">Processando Cruzamento de Dados...</span></div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6 shrink-0">
+        <div class="bg-white dark:bg-darkcard p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder border-t-4 border-t-rose-500"><h3 class="text-slate-500 dark:text-slate-400 font-bold text-[10px] uppercase mb-1">Veículos Pendentes</h3><p id="kpi-pendentes" class="text-4xl font-black text-rose-600 dark:text-rose-400 mb-3">0</p></div>
+        <div class="bg-white dark:bg-darkcard p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder border-t-4 border-t-blue-500"><h3 class="text-slate-500 dark:text-slate-400 font-bold text-[10px] uppercase mb-1">E-mails Enviados</h3><p id="kpi-email-total" class="text-4xl font-black text-blue-600 dark:text-blue-400 mb-3">0</p></div>
+        <div class="bg-white dark:bg-darkcard p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder border-t-4 border-t-emerald-500"><h3 class="text-slate-500 dark:text-slate-400 font-bold text-[10px] uppercase mb-1">WhatsApps Marcados</h3><p id="kpi-whats-total" class="text-4xl font-black text-emerald-600 dark:text-emerald-400 mb-3">0</p></div>
+        <div class="bg-white dark:bg-darkcard p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder border-t-4 border-t-indigo-500"><h3 class="text-slate-500 dark:text-slate-400 font-bold text-[10px] uppercase mb-1">Conclusões Gerais</h3><p id="kpi-concluidos" class="text-4xl font-black text-indigo-600 dark:text-indigo-400 mb-3">0</p></div>
+      </div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 shrink-0"><div class="bg-white dark:bg-darkcard p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder"><h3 class="text-slate-700 dark:text-slate-300 font-bold mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">Evolução Mensal (E-mail vs Whats)</h3><div class="h-72"><canvas id="chartHistorico"></canvas></div></div><div class="bg-white dark:bg-darkcard p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder"><h3 class="text-slate-700 dark:text-slate-300 font-bold mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">Envios Realizados por Etapa</h3><div class="h-72"><canvas id="chartEnviosEtapa"></canvas></div></div></div>
+    </div>
+
+    <div id="tela-cadastro" class="h-full hidden flex-col p-8 overflow-y-auto">
+      <div class="max-w-5xl mx-auto w-full shrink-0">
+        <div class="bg-indigo-600 dark:bg-indigo-700 text-white rounded-t-2xl p-8 shadow-lg"><h2 class="text-3xl font-black mb-2 tracking-tight">🤖 Motor de Importação SGA</h2><p class="text-indigo-100 font-medium">Cole a tabela do Hinova. A Inteligência fatiará as linhas e extrairá a <b>FIPE (R$)</b> se disponível.</p></div>
+        <div class="bg-white dark:bg-darkcard rounded-b-2xl shadow-xl border border-slate-200 dark:border-darkborder p-8 mb-6">
+          <textarea id="txtPastedSGA" class="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-xl p-5 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-300 h-48 mb-5 transition" placeholder="Cole aqui as linhas copiadas do SGA Hinova..."></textarea>
+          <div class="flex justify-end gap-4"><button onclick="limparLote()" class="px-6 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition">Limpar Tela</button><button onclick="processarPastedData()" class="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none hover:bg-indigo-700 transition flex items-center gap-2 transform hover:-translate-y-0.5">🔍 Analisar Texto</button></div>
+        </div>
+        <div id="boxPreviewLote" class="bg-white dark:bg-darkcard rounded-2xl shadow-xl border border-slate-200 dark:border-darkborder p-8 hidden flex-col animate-[fadeIn_0.3s_ease-out]">
+          <div class="flex justify-between items-center mb-6 shrink-0"><h3 class="font-bold text-slate-800 dark:text-white text-xl">Pré-Visualização (<span id="contPreview" class="text-indigo-600 dark:text-indigo-400">0</span> Clientes)</h3><button onclick="confirmarLoteBanco()" id="btnConfirmarLote" class="px-8 py-3 bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 dark:shadow-none hover:bg-emerald-700 transition transform hover:-translate-y-0.5 flex items-center gap-2">📥 Salvar no Banco Seguro</button></div>
+          <div class="overflow-y-auto max-h-[500px] border border-slate-200 dark:border-slate-700 rounded-xl flex-1">
+            <table class="min-w-full text-left text-sm relative">
+              <thead class="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10"><tr class="text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider font-bold"><th class="py-3 px-4">Data Limpa</th><th class="py-3 px-4">Nome Extraído</th><th class="py-3 px-4">Veículo / FIPE</th><th class="py-3 px-4">Contato</th></tr></thead>
+              <tbody id="corpoPreview" class="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="tela-tecnicos" class="h-full hidden flex-col p-8 overflow-hidden">
+      <div class="flex justify-between items-center mb-6 shrink-0">
+        <div><h2 class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Gestão de Técnicos</h2><p class="text-slate-500 dark:text-slate-400 mt-1 text-sm">Gerencie os profissionais na planilha secundária com consulta a API dos Correios.</p></div>
+        <div class="flex items-center gap-3">
+          <button onclick="carregarTecnicos()" class="px-5 py-2.5 bg-white dark:bg-darkcard rounded-lg font-bold border border-slate-300 dark:border-slate-600 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition dark:text-white text-sm">🔄 Atualizar</button>
+          <button onclick="abrirModalTecnico()" class="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-bold shadow-md hover:bg-indigo-700 transition flex items-center gap-2 text-sm">➕ Adicionar Técnico</button>
+        </div>
+      </div>
+      <div class="bg-white dark:bg-darkcard shadow-sm border border-slate-200 dark:border-darkborder overflow-y-auto flex-1 rounded-xl relative">
+        <div id="loading-tecnicos" class="flex flex-col items-center justify-center py-20 gap-4 text-indigo-600 dark:text-indigo-400 font-bold hidden"><div class="loader rounded-full border-4 h-10 w-10 border-r-transparent"></div> Carregando técnicos...</div>
+        <table id="tabela-tecnicos" class="min-w-max w-full text-left text-sm hidden border-collapse">
+          <thead class="bg-slate-100 dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 sticky top-0 z-20 shadow-sm">
+            <tr class="text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider select-none font-bold"><th class="py-2 px-4 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition" onclick="setSortTecnicos('nome')">Nome / Empresa <span id="sort-tec-nome" class="sort-icon"></span></th><th class="py-2 px-4 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition" onclick="setSortTecnicos('tipo')">Tipo <span id="sort-tec-tipo" class="sort-icon"></span></th><th class="py-2 px-4 text-center cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition" onclick="setSortTecnicos('estado')">Estado <span id="sort-tec-estado" class="sort-icon"></span></th><th class="py-2 px-4 cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700 transition" onclick="setSortTecnicos('telefone')">Contato <span id="sort-tec-telefone" class="sort-icon"></span></th><th class="py-2 px-4 text-center w-32">Ações</th></tr>
+          </thead>
+          <tbody id="corpo-tecnicos" class="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="tela-config" class="h-full hidden flex-col overflow-y-auto p-8">
+      <div class="flex justify-between items-center mb-8 shrink-0">
+        <div><h2 class="text-3xl font-black text-slate-800 dark:text-white">Painel de Configurações</h2><p class="text-slate-500 dark:text-slate-400 mt-1">Gerencie os templates de envio de e-mail e WhatsApp.</p></div>
+        <button onclick="carregarConfigs()" class="px-5 py-2.5 bg-white dark:bg-darkcard rounded-lg font-bold border border-slate-300 dark:border-slate-600 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition dark:text-white">🔄 Sincronizar Textos</button>
+      </div>
+      <div id="loading-config" class="flex items-center gap-4 text-indigo-600 dark:text-indigo-400 font-bold hidden mb-6 shrink-0"><div class="loader rounded-full border-4 h-6 w-6 border-r-transparent"></div> Lendo Banco de Dados...</div>
+      <div id="corpo-config" class="grid grid-cols-1 gap-6 max-w-5xl shrink-0"></div>
+    </div>
+
+    <div id="tela-ferramentas" class="h-full hidden flex-col overflow-y-auto p-8">
+      <div class="max-w-4xl w-full">
+        <h2 class="text-3xl font-black text-slate-800 dark:text-white mb-2">Automações Globais</h2>
+        <p class="text-slate-500 dark:text-slate-400 font-medium mb-8">Estas ferramentas varrem toda a planilha de uma só vez.</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <button class="bg-white dark:bg-darkcard p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder hover:border-emerald-500 text-left transition transform hover:-translate-y-1 block w-full" onclick="rodarFerramentaGlobal('varrer_concluidos')"><div class="text-4xl mb-3">✅</div><h3 class="font-black text-slate-800 dark:text-white text-lg">Varrer Concluídos</h3><p class="text-xs text-slate-500 mt-1 leading-relaxed">Busca e limpa todos os clientes concluídos da fila consultando a API do SGA.</p></button>
+          <button class="bg-white dark:bg-darkcard p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder hover:border-rose-500 text-left transition transform hover:-translate-y-1 block w-full" onclick="rodarFerramentaGlobal('sincronizar_erros')"><div class="text-4xl mb-3">📬</div><h3 class="font-black text-slate-800 dark:text-white text-lg">Sincronizar Gmail</h3><p class="text-xs text-slate-500 mt-1 leading-relaxed">Mapeia e-mails devolvidos (Mailer Daemon) e marca os erros na planilha.</p></button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tela-logs" class="h-full hidden flex-col p-4 overflow-hidden">
+      <header class="bg-white dark:bg-darkcard shadow-sm p-3 flex items-center justify-between border border-slate-200 dark:border-darkborder rounded-xl shrink-0 z-20 mb-2 print:hidden relative">
+        <div class="flex items-center gap-4"><h2 class="text-lg font-black text-slate-800 dark:text-white tracking-tight">Central de Logs Unificada</h2></div>
+        <div class="flex items-center gap-2">
+            <button onclick="dispararImpressaoLogs()" class="px-3 py-1.5 text-sm bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg font-bold shadow-sm hover:bg-slate-200 dark:hover:bg-slate-700 transition flex items-center gap-1.5 border border-slate-300 dark:border-slate-600">🖨️ Imprimir</button>
+            <button onclick="carregarDadosDoLog()" class="px-3 py-1.5 text-sm bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 rounded-lg border border-indigo-200 dark:border-indigo-800 font-bold shadow-sm hover:bg-indigo-100 dark:hover:bg-indigo-800/50 transition flex items-center gap-1.5">🔄 Atualizar Base</button>
+        </div>
+      </header>
+      <div id="barraFiltrosLogs" class="bg-white dark:bg-darkcard shadow-sm border border-slate-200 dark:border-darkborder rounded-t-xl p-2 flex flex-col md:flex-row justify-between items-center gap-3 z-10 relative border-b-0 shrink-0 print:hidden">
+        <div class="flex flex-wrap items-center gap-2 w-full md:w-auto">
+          <select id="filtroLogEtapa" onchange="aplicarFiltrosLogs()" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs rounded-md py-2 px-2 font-bold focus:outline-none cursor-pointer shadow-sm min-w-max"><option value="todas">🎯 Todas as Etapas</option><option value="1">🔰 Somente Etapa 1</option><option value="2">⚠️ Somente Etapa 2</option><option value="3">⛔ Somente Etapa 3</option></select>
+          <select id="filtroLogConclusao" onchange="aplicarFiltrosLogs()" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs rounded-md py-2 px-2 font-bold focus:outline-none cursor-pointer shadow-sm min-w-max"><option value="todos">📊 Todos (Concluídos e Pendentes)</option><option value="concluidos">✅ Somente Concluídos</option><option value="pendentes">⏳ Somente Pendentes</option></select>
+          <select id="filtroLogSituacao" onchange="aplicarFiltrosLogs()" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs rounded-md py-2 px-2 font-bold focus:outline-none cursor-pointer shadow-sm min-w-max"><option value="todos">🌐 SGA: Todos</option><option value="ativos">🟢 SGA: Ativos</option><option value="inativos">🟣 SGA: Inativos</option></select>
+          <select id="filtroLogErro" onchange="aplicarFiltrosLogs()" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs rounded-md py-2 px-2 font-bold focus:outline-none cursor-pointer shadow-sm min-w-max"><option value="todos">📧 Erros E-mail: Todos</option><option value="com_erro">❌ Com Erro</option><option value="sem_erro">✔️ Sem Erro</option></select>
+        </div>
+        <div class="relative flex items-center w-full md:w-72 shrink-0">
+            <span class="absolute left-3 text-slate-400 dark:text-slate-500 text-sm">🔍</span>
+            <input type="text" id="ipt-busca-log" placeholder="Buscar no Histórico..." oninput="aplicarFiltrosLogs()" class="w-full bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 pl-9 pr-3 py-2 rounded-lg text-sm font-medium outline-none focus:ring-2 focus:ring-indigo-500 dark:focus:ring-indigo-400 transition shadow-sm placeholder-slate-400 dark:placeholder-slate-500">
+        </div>
+      </div>
+      <div id="containerTabelaLogs" class="flex-1 overflow-y-auto bg-white dark:bg-darkcard shadow-sm border border-slate-200 dark:border-darkborder rounded-b-xl relative print:border-none">
+        <div id="loading-logs" class="flex flex-col items-center justify-center py-20 gap-4 text-indigo-600 dark:text-indigo-400 font-bold hidden"><div class="loader rounded-full border-4 h-10 w-10 border-r-transparent"></div> Cruzando Base Mestre...</div>
+        <table id="tabela-logs" class="min-w-max w-full text-left text-sm hidden border-collapse print:w-full"><thead class="sticky top-0 z-10 bg-slate-800 dark:bg-slate-900 text-white shadow-md print:static print:bg-white print:text-black text-[10px] uppercase tracking-wider" id="head-logs"></thead><tbody id="corpo-logs" class="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300 print:divide-slate-300 align-top"></tbody></table>
+      </div>
+      <div id="paginacaoBoxLogs" class="flex justify-between items-center py-2 px-5 bg-slate-50 dark:bg-slate-900/50 border border-t-0 border-slate-200 dark:border-darkborder rounded-b-xl shadow-sm shrink-0 hidden print:hidden mt-2">
+         <div class="flex items-center gap-4"><div class="flex items-center gap-2"><span class="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Mostrar:</span><select id="selectRowsPerLogPage" onchange="mudarPaginacaoLogs()" class="bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs rounded-md py-1 px-2 font-bold focus:outline-none cursor-pointer shadow-sm"><option value="50">50 Linhas</option><option value="100">100 Linhas</option><option value="200">200 Linhas</option><option value="todos">Todos</option></select></div><div class="h-4 w-px bg-slate-200 dark:bg-slate-700"></div><span id="pageInfoLogs" class="text-sm font-medium text-slate-600 dark:text-slate-300">Mostrando 0 a 0 de 0</span></div>
+         <div class="flex gap-2"><button onclick="prevPageLogs()" id="btnPrevLogs" class="px-4 py-1 border border-slate-300 dark:border-slate-600 rounded-md text-xs font-black text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-slate-800 shadow-sm">◀ Ant</button><button onclick="nextPageLogs()" id="btnNextLogs" class="px-4 py-1 border border-slate-300 dark:border-slate-600 rounded-md text-xs font-black text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed bg-white dark:bg-slate-800 shadow-sm">Próx ▶</button></div>
+      </div>
+    </div>
+
+    <div id="tela-usuarios" class="h-full hidden flex-col p-8 overflow-hidden">
+      <div class="flex justify-between items-center mb-6 shrink-0">
+        <div><h2 class="text-3xl font-black text-slate-800 dark:text-white tracking-tight">Gestão de Usuários</h2><p class="text-slate-500 dark:text-slate-400 mt-1 text-sm">Gerencie os acessos ao sistema SGCW. Senhas ofuscadas via Base64.</p></div>
+        <div class="flex items-center gap-3">
+          <button onclick="carregarUsuarios()" class="px-5 py-2.5 bg-white dark:bg-darkcard rounded-lg font-bold border border-slate-300 dark:border-slate-600 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-800 transition dark:text-white text-sm">🔄 Atualizar</button>
+          <button onclick="abrirModalUsuario()" class="px-5 py-2.5 bg-indigo-600 text-white rounded-lg font-bold shadow-md hover:bg-indigo-700 transition flex items-center gap-2 text-sm">➕ Adicionar Usuário</button>
+        </div>
+      </div>
+      <div class="bg-white dark:bg-darkcard shadow-sm border border-slate-200 dark:border-darkborder overflow-y-auto flex-1 rounded-xl relative">
+        <div id="loading-usuarios" class="flex flex-col items-center justify-center py-20 gap-4 text-indigo-600 dark:text-indigo-400 font-bold hidden"><div class="loader rounded-full border-4 h-10 w-10 border-r-transparent"></div> Carregando usuários...</div>
+        <table id="tabela-usuarios" class="min-w-max w-full text-left text-sm hidden border-collapse">
+          <thead class="bg-slate-100 dark:bg-slate-800 border-b-2 border-slate-200 dark:border-slate-700 sticky top-0 z-20 shadow-sm">
+            <tr class="text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider font-bold">
+              <th class="py-3 px-4">Nome do Colaborador</th>
+              <th class="py-3 px-4">Login de Acesso</th>
+              <th class="py-3 px-4 text-center">Nível de Permissão</th>
+              <th class="py-3 px-4 text-center">Credencial SGA</th>
+              <th class="py-3 px-4 text-center w-32">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="corpo-usuarios" class="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </main>
+  
+  <?!= include('Scripts'); ?>
+</body>
+</html>
