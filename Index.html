@@ -365,16 +365,7 @@
           <textarea id="txtPastedSGA" class="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-xl p-5 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-300 h-48 mb-5 transition" placeholder="Cole aqui as linhas copiadas do SGA Hinova..."></textarea>
           <div class="flex justify-end gap-4"><button onclick="limparLote()" class="px-6 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition">Limpar Tela</button><button onclick="processarPastedData()" class="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none hover:bg-indigo-700 transition flex items-center gap-2 transform hover:-translate-y-0.5">🔍 Analisar Texto</button></div>
         </div>
-        <div id="boxPreviewLote" class="bg-white dark:bg-darkcard rounded-2xl shadow-xl border border-slate-200 dark:border-darkborder p-8 hidden flex-col animate-[fadeIn_0.3s_ease-out]">
-          <div class="flex justify-between items-center mb-6 shrink-0"><h3 class="font-bold text-slate-800 dark:text-white text-xl">Pré-Visualização (<span id="contPreview" class="text-indigo-600 dark:text-indigo-400">0</span> Clientes)</h3><button onclick="confirmarLoteBanco()" id="btnConfirmarLote" class="px-8 py-3 bg-emerald-600 text-white font-bold rounded-xl shadow-lg shadow-emerald-200 dark:shadow-none hover:bg-emerald-700 transition transform hover:-translate-y-0.5 flex items-center gap-2">📥 Salvar no Banco Seguro</button></div>
-          <div class="overflow-y-auto max-h-[500px] border border-slate-200 dark:border-slate-700 rounded-xl flex-1">
-            <table class="min-w-full text-left text-sm relative">
-              <thead class="bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10"><tr class="text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider font-bold"><th class="py-3 px-4">Data Limpa</th><th class="py-3 px-4">Nome Extraído</th><th class="py-3 px-4">Veículo / FIPE</th><th class="py-3 px-4">Contato</th></tr></thead>
-              <tbody id="corpoPreview" class="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+             </div>
     </div>
 
     <div id="tela-tecnicos" class="h-full hidden flex-col p-8 overflow-hidden">
@@ -471,7 +462,38 @@
       </div>
     </div>
 
-  </main>
+ </main>
+
+  <div id="modal-staging" class="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[100] hidden flex-col items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out]">
+    <div class="bg-white dark:bg-slate-900 w-full max-w-5xl rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden border border-slate-200 dark:border-slate-700">
+      <div class="p-6 border-b border-slate-200 dark:border-slate-700 flex justify-between items-center bg-slate-50 dark:bg-slate-800">
+        <div>
+          <h3 class="font-black text-xl text-slate-800 dark:text-white flex items-center gap-2">👀 Fila de Triagem (Double Check)</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-1"><span id="contPreview" class="font-bold text-indigo-600 dark:text-indigo-400">0</span> novos clientes encontrados. Duplicatas já foram barradas.</p>
+        </div>
+        <button onclick="limparLote()" class="text-slate-400 hover:text-rose-500 transition text-3xl font-light">&times;</button>
+      </div>
+      <div class="overflow-y-auto flex-1 p-0">
+        <table class="min-w-full text-left text-sm">
+          <thead class="bg-slate-100 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-700 sticky top-0 z-10">
+            <tr class="text-slate-500 dark:text-slate-400 uppercase text-[10px] tracking-wider font-bold">
+              <th class="py-3 px-4 w-10 text-center"><input type="checkbox" onchange="marcarTodosPreview(this)" class="w-4 h-4 rounded text-indigo-600 cursor-pointer"></th>
+              <th class="py-3 px-4 text-center">SLA / Sugestão</th>
+              <th class="py-3 px-4">Nome e Divergências</th>
+              <th class="py-3 px-4">Veículo / FIPE</th>
+              <th class="py-3 px-4 text-center">Ação</th>
+            </tr>
+          </thead>
+          <tbody id="corpoPreview" class="divide-y divide-slate-100 dark:divide-slate-800/50 text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-900"></tbody>
+        </table>
+      </div>
+      <div class="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex justify-end gap-3">
+         <button onclick="limparLote()" class="px-5 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition">Cancelar</button>
+         <button id="btn-imp-sel" onclick="importarSelecionadosPreview()" class="px-5 py-2.5 text-sm font-bold bg-slate-700 hover:bg-slate-800 text-white rounded-lg transition flex items-center gap-2">✔️ Importar Selecionados</button>
+         <button id="btn-imp-todos" onclick="importarTodosPreview()" class="px-5 py-2.5 text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg shadow-md transition flex items-center gap-2">📥 Importar Todos</button>
+      </div>
+    </div>
+  </div>
   
   <?!= include('Scripts'); ?>
 </body>

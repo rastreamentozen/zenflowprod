@@ -606,120 +606,212 @@
         })
         .varrerConcluidosSelecionadosWeb(alvos);
     }
-// =======================================================================
-    // IMPORTAÇÃO DE LOTES (SGA HINOVA)
+
     // =======================================================================
+    // IMPORTAÇÃO DE LOTES (SGA HINOVA) - TRIAGEM (DOUBLE CHECK)
+    // =======================================================================
+    let cacheLoteValidado = [];
+    let selecaoPreview = new Set();
+
     function limparLote() { 
-      document.getElementById('txtPastedSGA').value = ""; 
-      document.getElementById('boxPreviewLote').classList.add('hidden'); 
-      cacheLoteParsed = []; 
-    }
-    
-    function processarPastedData() {
-      const rawText = document.getElementById('txtPastedSGA').value; 
-      if(!rawText.trim()) return aviso("⚠️ Cole o texto primeiro!");
-      
-      const linhas = rawText.split('\n').map(l => l.trim()).filter(l => l !== "");
-      const parsed = [];
-      
-      const regexCabecalho = /^PENDENTE/i;
-      const regexData = /\d{2}\/\d{2}\/\d{4}/;
-      const regexPlaca = /^[A-Z]{3}[\s-]?[0-9][A-Z0-9][0-9]{2}$|^[A-Z]{3}[\s-]?[0-9]{4}$/i;
-      const regexChassi = /^[A-HJ-NPR-Z0-9]{17}$/i;
-      const regexValor = /^R\$\s*[\d\.,]+/i;
-      const regexEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i;
-      const regexTelefone = /^\(\d{2}\)\s*\d{4,5}-?\d{4}$/i;
-      const regexUF = /^[A-Z]{2}$/;
-
-      let cliAtual = null;
-
-      for (let j = 0; j < linhas.length; j++) {
-          let linha = linhas[j];
-
-          // 1. Identifica Início de Cliente
-          if (regexCabecalho.test(linha)) {
-              if (cliAtual && (cliAtual.placa || cliAtual.chassi)) parsed.push(cliAtual);
-              
-              cliAtual = { data: "", nome: "", placa: "", chassi: "", email: "", telefone: "", fipe: "", estado: "", cidade: "", bairro: "" };
-              
-              let matchData = linha.match(regexData);
-              cliAtual.data = matchData ? matchData[0] : "";
-              
-              if (j + 1 < linhas.length && !regexCabecalho.test(linhas[j + 1])) {
-                  cliAtual.nome = linhas[j + 1].toUpperCase();
-                  j++; 
-              }
-              continue;
-          }
-
-          if (!cliAtual) continue;
-
-          // 2. Classificação Heurística por Padrão de String
-          if (regexPlaca.test(linha)) { cliAtual.placa = linha.toUpperCase(); continue; }
-          if (regexChassi.test(linha)) { cliAtual.chassi = linha.toUpperCase(); continue; }
-          if (regexValor.test(linha)) { cliAtual.fipe = linha.replace(/R\$\s?/gi, '').trim(); continue; }
-          if (regexEmail.test(linha)) { cliAtual.email = linha.toLowerCase(); continue; }
-          
-          if (regexTelefone.test(linha) || /^\d{10,11}$/.test(linha.replace(/\D/g, ''))) { 
-              cliAtual.telefone = linha; 
-              continue; 
-          }
-          
-          if (regexUF.test(linha) && linha.length === 2) { cliAtual.estado = linha.toUpperCase(); continue; }
-
-          // 3. Captura Cidade e Bairro por Exclusão
-          if (cliAtual.estado && !cliAtual.cidade && linha.toUpperCase() !== "PENDENTE") { 
-              cliAtual.cidade = linha; 
-              continue; 
-          }
-          if (cliAtual.cidade && !cliAtual.bairro && linha.toUpperCase() !== "PENDENTE") { 
-              cliAtual.bairro = linha; 
-              continue; 
-          }
-      }
-      
-      // Salva o último cliente que sobrou na variável
-      if (cliAtual && (cliAtual.placa || cliAtual.chassi)) parsed.push(cliAtual);
-      
-      if (parsed.length === 0) return aviso("⚠️ Não encontrei clientes. Certifique-se de colar o relatório completo com os status 'PENDENTE'.");
-      
-      cacheLoteParsed = parsed; 
-      document.getElementById('contPreview').innerText = parsed.length;
-      
-      document.getElementById('corpoPreview').innerHTML = parsed.map(c => { 
-        let fipeDisplay = formatarMoedaBRL(c.fipe); 
-        let veicDisplay = c.placa ? c.placa : (c.chassi ? c.chassi : '-'); 
-        let localDisplay = (c.estado || c.cidade) ? `<span class="text-[10px] text-slate-500 dark:text-slate-400 block mt-1 font-bold">📍 ${c.cidade || 'Sem Cid'} - ${c.estado || ''}</span>` : '';
-        
-        return `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700/50">
-                  <td class="py-3 px-4 font-mono font-medium">${c.data || '-'}</td>
-                  <td class="py-3 px-4 font-bold text-indigo-600 dark:text-indigo-400">${c.nome || 'SEM NOME'}${localDisplay}</td>
-                  <td class="py-3 px-4 font-mono font-medium text-slate-600 dark:text-slate-300">${veicDisplay}<br><span class="text-[12px] bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2.5 py-1 rounded-md text-slate-800 dark:text-slate-200 font-black mt-1.5 block w-max shadow-sm">${fipeDisplay}</span></td>
-                  <td class="py-3 px-4 text-xs">${c.email}<br><span class="font-bold text-slate-800 dark:text-slate-200 mt-1 block">${c.telefone}</span></td>
-                </tr>` 
-      }).join('');
-      
-      document.getElementById('boxPreviewLote').classList.remove('hidden'); 
-      aviso(`✅ ${parsed.length} clientes formatados prontos para importação!`);
+        document.getElementById('txtPastedSGA').value = ""; 
+        const modal = document.getElementById('modal-staging');
+        if(modal) {
+            modal.classList.add('hidden'); 
+            modal.classList.remove('flex');
+        }
+        cacheLoteValidado = []; 
+        selecaoPreview.clear();
     }
 
-    function confirmarLoteBanco() { 
-      if(cacheLoteParsed.length === 0) return; 
-      const btn = document.getElementById('btnConfirmarLote'); 
-      btn.innerHTML = "Salvando..."; 
-      btn.disabled = true; 
+    function processarArquivoExcel(event) { 
+        const file = event.target.files[0]; 
+        if (!file) return; 
+        aviso("⏳ Lendo arquivo e verificando codificação...", 10000); 
+        const reader = new FileReader(); 
+        reader.onload = function(e) { 
+            const textContent = e.target.result; 
+            const checkTbl = "<tab" + "le"; 
+            const checkHtml = "<ht" + "ml"; 
+            const checkTblUp = "<TAB" + "LE"; 
+            if (textContent.includes(checkTbl) || textContent.includes(checkHtml) || textContent.includes(checkTblUp)) { 
+                processarFalsoXlsSGA(textContent); 
+            } else { 
+                const arrayReader = new FileReader(); 
+                arrayReader.onload = function(eArr) { processarXlsxReal(new Uint8Array(eArr.target.result)); }; 
+                arrayReader.readAsArrayBuffer(file); 
+            } 
+            document.getElementById('ipt-file-excel').value = ""; 
+        }; 
+        reader.readAsText(file, 'ISO-8859-1'); 
+    }
+
+    function processarFalsoXlsSGA(htmlText) { 
+        try { 
+            const parser = new DOMParser(); 
+            const doc = parser.parseFromString(htmlText, "text/html"); 
+            const trs = doc.querySelectorAll("tr"); 
+            const parsed = []; 
+            const dtHojeFormato = new Date().toLocaleDateString('pt-BR'); 
+            for (let i = 2; i < trs.length; i++) { 
+                const tds = trs[i].querySelectorAll("td, th"); 
+                if (tds.length < 5) continue; 
+                const getCell = (idx) => tds[idx] ? tds[idx].textContent.replace(/\s+/g, ' ').trim() : ""; 
+                let rawColA = getCell(0).toUpperCase(); 
+                let nomeVal = getCell(1).toUpperCase(); 
+                let placaVal = getCell(2).toUpperCase().replace(/[^A-Z0-9]/g, ''); 
+                let chassiVal = getCell(3).toUpperCase(); 
+                if ((placaVal || chassiVal) && rawColA.includes("PENDENTE")) { 
+                    let matchData = rawColA.match(/\d{2}\/\d{2}\/\d{4}/); 
+                    let dataEntradaReal = matchData ? matchData[0] : dtHojeFormato; 
+                    parsed.push({ data: dataEntradaReal, nome: nomeVal, placa: placaVal, chassi: chassiVal, fipe: getCell(4).replace(/R\$\s?/gi, '').trim(), email: getCell(6).toLowerCase(), telefone: getCell(7), estado: getCell(8).toUpperCase(), cidade: getCell(9), bairro: getCell(11) }); 
+                } 
+            } 
+            renderizarPreviewLote(parsed); 
+        } catch (err) { aviso("❌ Erro ao decodificar a tabela HTML do SGA: " + err.message); } 
+    }
+
+    function processarXlsxReal(dataArray) { 
+        try { 
+            const workbook = XLSX.read(dataArray, {type: 'array'}); 
+            const worksheet = workbook.Sheets[workbook.SheetNames[0]]; 
+            const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false }); 
+            const parsed = []; 
+            const dtHojeFormato = new Date().toLocaleDateString('pt-BR'); 
+            for (let i = 2; i < rows.length; i++) { 
+                const row = rows[i]; 
+                if (!row || row.length === 0) continue; 
+                const cleanStr = (val) => String(val || "").replace(/<[^>]*>?/gm, '').trim(); 
+                let rawColA = cleanStr(row[0]).toUpperCase(); 
+                let nomeVal = cleanStr(row[1]).toUpperCase(); 
+                let placaVal = cleanStr(row[2]).toUpperCase().replace(/[^A-Z0-9]/g, ''); 
+                let chassiVal = cleanStr(row[3]).toUpperCase(); 
+                if ((placaVal || chassiVal) && rawColA.includes("PENDENTE")) { 
+                    let matchData = rawColA.match(/\d{2}\/\d{2}\/\d{4}/); 
+                    let dataEntradaReal = matchData ? matchData[0] : dtHojeFormato; 
+                    parsed.push({ data: dataEntradaReal, nome: nomeVal, placa: placaVal, chassi: chassiVal, fipe: cleanStr(row[4]).replace(/R\$\s?/gi, '').trim(), email: cleanStr(row[6]).toLowerCase(), telefone: cleanStr(row[7]), estado: cleanStr(row[8]).toUpperCase(), cidade: cleanStr(row[9]), bairro: cleanStr(row[11]) }); 
+                } 
+            } 
+            renderizarPreviewLote(parsed); 
+        } catch (err) { aviso("❌ Erro ao ler XLSX: " + err.message); } 
+    }
+
+    function processarPastedData() { 
+        const rawText = document.getElementById('txtPastedSGA').value; 
+        if(!rawText.trim()) return aviso("⚠️ Cole o texto primeiro!"); 
+        const linhas = rawText.split('\n').map(l => l.trim()).filter(l => l !== ""); 
+        const parsed = parsearSGAHeuristico(linhas); 
+        renderizarPreviewLote(parsed); 
+    }
+
+    function parsearSGAHeuristico(linhas) { 
+        const parsed = []; 
+        const regexData = /\d{2}\/\d{2}\/\d{4}/; 
+        const regexPlaca = /^[A-Z]{3}[\s-]?[0-9][A-Z0-9][0-9]{2}$|^[A-Z]{3}[\s-]?[0-9]{4}$/i; 
+        const regexChassi = /^[A-HJ-NPR-Z0-9]{17}$/i; 
+        const regexValor = /^R\$\s*[\d\.,]+/i; 
+        const regexEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/i; 
+        const regexTelefone = /^\(?\d{2}\)?\s*\d{4,5}-?\d{4}$/i; 
+        const regexUF = /^[A-Z]{2}$/; 
+        let currentClient = null; 
+        let nonMatchedLines = []; 
+        for (let i = 0; i < linhas.length; i++) { 
+            let linha = linhas[i].trim(); 
+            if (linha.toUpperCase().includes("PENDENTE") && regexData.test(linha)) { 
+                if (currentClient) { 
+                    if (nonMatchedLines.length > 0) currentClient.cidade = nonMatchedLines.shift(); 
+                    if (nonMatchedLines.length > 0) currentClient.bairro = nonMatchedLines.shift(); 
+                    currentClient.linhasSobrandoParaDebug = [...nonMatchedLines]; 
+                    parsed.push(currentClient); 
+                } 
+                let matchData = linha.match(regexData); 
+                currentClient = { infoHeader: linha, data: matchData ? matchData[0] : "", nome: "", placa: "", chassi: "", email: "", telefone: "", fipe: "", estado: "", cidade: "", bairro: "" }; 
+                nonMatchedLines = []; 
+                if (i + 1 < linhas.length && !linhas[i+1].toUpperCase().includes("PENDENTE")) { 
+                    currentClient.nome = linhas[i+1].toUpperCase(); i++; 
+                } 
+                continue; 
+            } 
+            if (!currentClient) continue; 
+            let limpo = linha.replace(/[^A-Z0-9]/ig, ''); 
+            if ((limpo.length >= 7 && limpo.length <= 8) && regexPlaca.test(linha)) { currentClient.placa = linha.toUpperCase(); } 
+            else if (limpo.length === 17 && regexChassi.test(linha)) { currentClient.chassi = linha.toUpperCase(); } 
+            else if (regexValor.test(linha)) { currentClient.fipe = linha.replace(/R\$\s?/gi, '').trim(); } 
+            else if (regexEmail.test(linha)) { currentClient.email = linha.toLowerCase(); } 
+            else if (regexTelefone.test(linha) || /^\d{10,11}$/.test(limpo)) { currentClient.telefone = linha; } 
+            else if (regexUF.test(linha) && linha.length === 2) { currentClient.estado = linha.toUpperCase(); } 
+            else { nonMatchedLines.push(linha); } 
+        } 
+        if (currentClient) { 
+            if (nonMatchedLines.length > 0) currentClient.cidade = nonMatchedLines.shift(); 
+            if (nonMatchedLines.length > 0) currentClient.bairro = nonMatchedLines.shift(); 
+            currentClient.linhasSobrandoParaDebug = [...nonMatchedLines]; 
+            parsed.push(currentClient); 
+        } 
+        return parsed; 
+    }
+
+    function renderizarPreviewLote(parsedRaw) {
+        if (parsedRaw.length === 0) return aviso("⚠️ Nenhum cliente PENDENTE válido encontrado no arquivo.");
+        aviso("⏳ Analisando SLA e cruzando com o banco de dados...", 60000);
+        google.script.run.withSuccessHandler(res => {
+            document.getElementById('toast').classList.add('hidden');
+            cacheLoteValidado = res.lote;
+            selecaoPreview.clear();
+            if (res.duplicados > 0) aviso(`⚠️ ${res.duplicados} duplicatas foram barradas automaticamente.`, 8000);
+            if (cacheLoteValidado.length === 0) {
+                document.getElementById('corpoPreview').innerHTML = '<tr><td colspan="5" class="py-10 text-center font-bold text-slate-500">Nenhum cliente novo a importar.</td></tr>';
+                document.getElementById('contPreview').innerText = "0";
+            } else {
+                desenharTabelaPreview();
+            }
+            document.getElementById('modal-staging').classList.remove('hidden'); 
+            document.getElementById('modal-staging').classList.add('flex'); 
+        }).withFailureHandler(err => aviso("❌ Erro ao validar lote: " + err.message)).web_validarLotePreImportacao(parsedRaw);
+    }
+
+    function desenharTabelaPreview() {
+        document.getElementById('contPreview').innerText = cacheLoteValidado.length;
+        let pHTML = "";
+        cacheLoteValidado.forEach(c => { 
+            let fipeDisplay = formatarMoedaBRL(c.fipe); 
+            let veicDisplay = c.placa ? c.placa : (c.chassi ? c.chassi : '-'); 
+            let etapaBadge = c.etapaSugerida === 1 ? '<span class="bg-indigo-100 text-indigo-800 text-[10px] px-2 py-0.5 rounded font-black border border-indigo-200 shadow-sm">ETAPA 1</span>' : c.etapaSugerida === 2 ? '<span class="bg-amber-100 text-amber-800 text-[10px] px-2 py-0.5 rounded font-black border border-amber-200 shadow-sm">ETAPA 2 (Alerta)</span>' : '<span class="bg-rose-100 text-rose-800 text-[10px] px-2 py-0.5 rounded font-black border border-rose-200 shadow-sm">ETAPA 3 (Expirado)</span>';
+            let slaText = '<div class="text-xs font-black text-slate-700 dark:text-slate-300 mb-1">' + c.diasSLA + ' Dias Úteis</div>' + etapaBadge;
+            let divergenciaHTML = c.temDivergencia ? '<div class="mt-1.5 text-[10px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-900/30 px-2 py-1 rounded inline-flex items-center gap-1">🚩 Divergência: ' + c.msgDivergencia + '</div>' : "";
+            let isChecked = selecaoPreview.has(c.idTemp) ? "checked" : "";
+            let hoverLocal = `Cidade: ${c.cidade || 'N/A'}\nBairro: ${c.bairro || 'N/A'}`;
+            let localDisplay = (c.estado || c.cidade) ? `<span class="text-[10px] text-slate-500 dark:text-slate-400 block mt-1 font-bold cursor-help w-max" title="${hoverLocal}">📍 ${c.estado || 'N/A'}</span>` : '';
+
+            pHTML += `<tr class="hover:bg-slate-50 dark:hover:bg-slate-800/50 border-b border-slate-100 dark:border-slate-700/50 transition"><td class="py-3 px-4 text-center align-middle"><input type="checkbox" onchange="toggleSelPreview(this, '${c.idTemp}')" class="chk-preview w-4 h-4 rounded text-indigo-600 cursor-pointer" ${isChecked}></td><td class="py-3 px-4 text-center align-middle bg-slate-50 dark:bg-slate-800/30">${slaText}</td><td class="py-3 px-4 align-middle"><div class="font-bold text-indigo-600 dark:text-indigo-400">${c.nome || 'SEM NOME'}</div><div class="text-[10px] text-slate-500 font-mono mt-0.5">Original: ${c.data || '-'}</div>${localDisplay}${divergenciaHTML}</td><td class="py-3 px-4 font-mono font-medium text-slate-600 dark:text-slate-300 align-middle">${veicDisplay}<br><span class="text-[11px] bg-slate-100 dark:bg-slate-700 border border-slate-300 dark:border-slate-600 px-2 py-0.5 rounded-md text-slate-800 dark:text-slate-200 font-black mt-1 block w-max shadow-sm">${fipeDisplay}</span></td><td class="py-3 px-4 text-center align-middle"><button onclick="importarUnicoPreview('${c.idTemp}')" class="text-xl hover:scale-125 transform transition drop-shadow-sm" title="Importar Apenas Este">↪️</button></td></tr>`; 
+        });
+        document.getElementById('corpoPreview').innerHTML = pHTML;
+    }
+
+    function toggleSelPreview(chk, idTemp) { if(chk.checked) selecaoPreview.add(idTemp); else selecaoPreview.delete(idTemp); }
+    function marcarTodosPreview(master) { document.querySelectorAll('.chk-preview').forEach(chk => chk.checked = master.checked); if(master.checked) cacheLoteValidado.forEach(c => selecaoPreview.add(c.idTemp)); else selecaoPreview.clear(); }
+    function importarUnicoPreview(idTemp) { let alvo = cacheLoteValidado.find(c => c.idTemp === idTemp); if(!alvo) return; executarSalvarLote([alvo]); }
+    function importarSelecionadosPreview() { let alvos = cacheLoteValidado.filter(c => selecaoPreview.has(c.idTemp)); if (alvos.length === 0) return aviso("⚠️ Selecione pelo menos um cliente marcando a caixinha."); executarSalvarLote(alvos); }
+    function importarTodosPreview() { if (cacheLoteValidado.length === 0) return aviso("⚠️ Nenhum cliente na fila."); executarSalvarLote(cacheLoteValidado); }
+
+    function executarSalvarLote(arrayAlvos) {
+      if(arrayAlvos.length === 0) return; 
+      const btnTodos = document.getElementById('btn-imp-todos'); const btnSel = document.getElementById('btn-imp-sel');
+      if(btnTodos) btnTodos.disabled = true; if(btnSel) btnSel.disabled = true;
+      aviso(`⏳ Salvando ${arrayAlvos.length} cliente(s) no Banco Seguro...`, 60000); 
+
       google.script.run.withSuccessHandler(res => { 
-        aviso(res, 10000); 
-        limparLote(); 
-        btn.innerHTML = "📥 Salvar no Banco Seguro"; 
-        btn.disabled = false; 
+          aviso(res, 8000); 
+          if(btnTodos) btnTodos.disabled = false; if(btnSel) btnSel.disabled = false;
+          const idsSalvos = arrayAlvos.map(c => c.idTemp);
+          cacheLoteValidado = cacheLoteValidado.filter(c => !idsSalvos.includes(c.idTemp));
+          selecaoPreview.clear();
+          if(cacheLoteValidado.length === 0) limparLote(); else desenharTabelaPreview();
       }).withFailureHandler(e => { 
-        aviso("❌ Erro: " + e.message); 
-        btn.innerHTML = "📥 Salvar no Banco Seguro"; 
-        btn.disabled = false; 
-      }).cadastrarLoteWeb(cacheLoteParsed); 
+          aviso("❌ Erro: " + e.message); 
+          if(btnTodos) btnTodos.disabled = false; if(btnSel) btnSel.disabled = false;
+      }).cadastrarLoteWeb(arrayAlvos); 
     }
-   
     // =======================================================================
     // CONFIGURAÇÕES E LOGS GERAIS
     // =======================================================================

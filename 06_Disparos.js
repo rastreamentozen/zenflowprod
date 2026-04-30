@@ -1,8 +1,13 @@
 // ====================================================================================
 // OBTENÇÃO DE PRÉVIA E DISPARO CANAL A CANAL
 // ====================================================================================
-function obterPreviewDisparoAgrupadoWeb(grupos) {
-  const ss = SpreadsheetApp.openById(PLANILHA_ID);
+
+// Variáveis Globais de Teste (Segurança)
+
+
+function obterPreviewDisparoAgrupadoWeb(grupos, isTeste) {
+  const idPlanilhaParaUso = isTeste ? PLANILHA_TESTE_ID : PLANILHA_ID;
+  const ss = SpreadsheetApp.openById(idPlanilhaParaUso);
   const templatesDict = getTemplatesDict(ss);
 
   let feriadosTime = [];
@@ -51,7 +56,6 @@ function obterPreviewDisparoAgrupadoWeb(grupos) {
         if (dtEntrada && dEmailObj) {
             try { diasDecorridosParaSLA = calcularDiasUteis(dtEntrada, dEmailObj, feriadosTime); } catch(e) {}
         } else {
-            // [SÊNIOR FIX]: Fallback - Se não houver envio prévio de 5 dias, mantém o padrão fixo de 5 dias restantes (10 base - 5 passados)
             diasDecorridosParaSLA = 5;
         }
     }
@@ -70,8 +74,14 @@ function obterPreviewDisparoAgrupadoWeb(grupos) {
       txt = aplicarTemplate(templatesDict, "PRAZO_EXPIRADO", g.nome, g.veiculosStr, isPlural, diasDecorridosParaSLA, limiteBaseSLA, dataEntradaFormatada);
     }
 
-    const htmlBodyFormatado = formatarComoEmail(txt, tituloHeader);
+    let htmlBodyFormatado = formatarComoEmail(txt, tituloHeader);
     
+    // Alerta visual no preview se estiver em modo teste
+    if (isTeste) {
+        const alertaTesteHtml = `<div style="background-color: #fca5a5; color: #991b1b; padding: 10px; font-weight: bold; text-align: center; border-radius: 5px; margin-bottom: 15px;">⚠️ AMBIENTE DE TESTES DO SGCW ⚠️<br>O e-mail original (${g.email}) será ignorado e enviado para a caixa de testes.</div>`;
+        htmlBodyFormatado = alertaTesteHtml + htmlBodyFormatado;
+    }
+
     let disclaimerFormatado = aplicarTemplate(templatesDict, "WHATSAPP_DISCLAIMER", g.nome, g.veiculosStr, isPlural, diasDecorridosParaSLA, limiteBaseSLA, dataEntradaFormatada);
     let msgWhats = "";
     
@@ -94,8 +104,9 @@ function obterPreviewDisparoAgrupadoWeb(grupos) {
   });
 }
 
-function dispararEmailAgrupadoWeb(grupos, responsavel) {
-  const ss = SpreadsheetApp.openById(PLANILHA_ID);
+function dispararEmailAgrupadoWeb(grupos, responsavel, isTeste) {
+  const idPlanilhaParaUso = isTeste ? PLANILHA_TESTE_ID : PLANILHA_ID;
+  const ss = SpreadsheetApp.openById(idPlanilhaParaUso);
   const dt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm");
   const templatesDict = getTemplatesDict(ss);
   let errosCriticos = [];
@@ -144,7 +155,6 @@ function dispararEmailAgrupadoWeb(grupos, responsavel) {
         if (dtEntrada && dEmailObj) {
             try { diasDecorridosParaSLA = calcularDiasUteis(dtEntrada, dEmailObj, feriadosTime); } catch(e) {}
         } else {
-            // [SÊNIOR FIX]: Fallback para o Motor Efetivo também
             diasDecorridosParaSLA = 5;
         }
     }
@@ -167,14 +177,23 @@ function dispararEmailAgrupadoWeb(grupos, responsavel) {
     }
 
     try {
-      const htmlPadrao = formatarComoEmail(txt, tituloHeader);
+      let htmlPadrao = formatarComoEmail(txt, tituloHeader);
       
-      const assuntoFinal = g.customAssunto ? g.customAssunto : ass;
+      // Adiciona o selo de teste no corpo do e-mail, caso esteja no Laboratório
+      if (isTeste) {
+          const alertaTesteHtml = `<div style="background-color: #fca5a5; color: #991b1b; padding: 10px; font-weight: bold; text-align: center; border-radius: 5px; margin-bottom: 15px;">⚠️ AMBIENTE DE TESTES DO SGCW ⚠️<br>E-mail original do cliente: ${g.email}</div>`;
+          htmlPadrao = alertaTesteHtml + htmlPadrao;
+      }
+
+      const assuntoFinal = isTeste ? "[MODO TESTE] " + (g.customAssunto ? g.customAssunto : ass) : (g.customAssunto ? g.customAssunto : ass);
       const htmlFinal = g.customEmailHtml ? g.customEmailHtml : htmlPadrao;
       const textoPuroFallback = txt + "\n\nAtenciosamente,\nSetor de Rastreamento\nZEN Seguros";
+      
+      // TRAVA DE DESTINATÁRIO (Se for teste, sobrepõe o e-mail do cliente pelo e-mail da Rastreamentozen)
+      const emailAlvo = isTeste ? EMAIL_TESTE_TRAVA : g.email;
 
       MailApp.sendEmail({
-        to: g.email, 
+        to: emailAlvo, 
         subject: assuntoFinal,
         body: textoPuroFallback,
         htmlBody: htmlFinal, 
@@ -184,10 +203,11 @@ function dispararEmailAgrupadoWeb(grupos, responsavel) {
       g.linhas.forEach(cli => {
         const aba = ss.getSheetByName(cli.abaNome);
         if (aba) {
+          const nomeResponsavelReal = isTeste ? responsavel + " (Modo Teste)" : responsavel;
           aba.getRange(cli.linhaOriginal, MAPA_COLUNAS.CHECK_EMAIL + 1).setValue(true);
           aba.getRange(cli.linhaOriginal, MAPA_COLUNAS.DATA_EMAIL + 1).setValue(dt);
-          aba.getRange(cli.linhaOriginal, MAPA_COLUNAS.RESPONSAVEL + 1).setValue(responsavel);
-          registrarAuditoriaExata(cli.nome, cli.placa, cli.chassi, cli.email, cli.telefone, ac, dt, responsavel);
+          aba.getRange(cli.linhaOriginal, MAPA_COLUNAS.RESPONSAVEL + 1).setValue(nomeResponsavelReal);
+          registrarAuditoriaExata(cli.nome, cli.placa, cli.chassi, cli.email, cli.telefone, ac, dt, nomeResponsavelReal);
         }
       });
     } catch (e) {
@@ -200,11 +220,16 @@ function dispararEmailAgrupadoWeb(grupos, responsavel) {
   });
 
   if (errosCriticos.length > 0) throw new Error("\n" + errosCriticos.join("\n\n"));
+  
+  if (isTeste) {
+     return `✅ LABORATÓRIO: Disparo Simulado Concluído!\nE-mails redirecionados com sucesso para ${EMAIL_TESTE_TRAVA}.`;
+  }
   return `E-mail enviado com sucesso!`;
 }
 
-function marcarWhatsAgrupadoWeb(grupos, responsavel) {
-  const ss = SpreadsheetApp.openById(PLANILHA_ID);
+function marcarWhatsAgrupadoWeb(grupos, responsavel, isTeste) {
+  const idPlanilhaParaUso = isTeste ? PLANILHA_TESTE_ID : PLANILHA_ID;
+  const ss = SpreadsheetApp.openById(idPlanilhaParaUso);
   const dt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm");
   
   grupos.forEach(g => {
@@ -212,10 +237,11 @@ function marcarWhatsAgrupadoWeb(grupos, responsavel) {
     g.linhas.forEach(cli => {
       const aba = ss.getSheetByName(cli.abaNome);
       if (aba) {
+        const nomeResponsavelReal = isTeste ? responsavel + " (Modo Teste)" : responsavel;
         aba.getRange(cli.linhaOriginal, MAPA_COLUNAS.CHECK_WHATS + 1).setValue(true);
         aba.getRange(cli.linhaOriginal, MAPA_COLUNAS.DATA_WHATS + 1).setValue(dt);
-        aba.getRange(cli.linhaOriginal, MAPA_COLUNAS.RESPONSAVEL + 1).setValue(responsavel);
-        registrarAuditoriaExata(cli.nome, cli.placa, cli.chassi, cli.email, cli.telefone, ac, dt, responsavel);
+        aba.getRange(cli.linhaOriginal, MAPA_COLUNAS.RESPONSAVEL + 1).setValue(nomeResponsavelReal);
+        registrarAuditoriaExata(cli.nome, cli.placa, cli.chassi, cli.email, cli.telefone, ac, dt, nomeResponsavelReal);
       }
     });
   });
@@ -236,4 +262,40 @@ function formatarComoEmail(textoHtmlOriginal, tituloEmail) {
     </div>
   `;
   return htmlFinal;
+}
+
+// ====================================================================================
+// FUNÇÃO DE RESET DO LABORATÓRIO (LIMPAR STATUS)
+// ====================================================================================
+function resetarMarcacoesTesteBackend(idsUnicos) {
+  // Trava rígida: Esta função NUNCA deve ler PLANILHA_ID (Produção)
+  const ssTeste = SpreadsheetApp.openById(PLANILHA_TESTE_ID);
+  
+  let cont = 0;
+  const operacoes = {};
+  
+  idsUnicos.forEach(id => {
+      const partes = id.lastIndexOf('-');
+      const abaNome = id.substring(0, partes);
+      const linha = parseInt(id.substring(partes + 1));
+      if (!operacoes[abaNome]) operacoes[abaNome] = [];
+      operacoes[abaNome].push(linha);
+  });
+  
+  for (const abaNome in operacoes) {
+      const aba = ssTeste.getSheetByName(abaNome);
+      if (!aba) continue;
+      
+      operacoes[abaNome].forEach(linha => {
+          aba.getRange(linha, MAPA_COLUNAS.CHECK_EMAIL + 1).setValue(false); 
+          aba.getRange(linha, MAPA_COLUNAS.DATA_EMAIL + 1).setValue("");    
+          aba.getRange(linha, MAPA_COLUNAS.RESPONDEU_EMAIL + 1).setValue(false); 
+          aba.getRange(linha, MAPA_COLUNAS.CHECK_WHATS + 1).setValue(false); 
+          aba.getRange(linha, MAPA_COLUNAS.DATA_WHATS + 1).setValue("");    
+          aba.getRange(linha, MAPA_COLUNAS.RESPONDEU_WHATS + 1).setValue(false); 
+          aba.getRange(linha, MAPA_COLUNAS.RESPONSAVEL + 1).setValue("");    
+          cont++;
+      });
+  }
+  return `O histórico de envios de ${cont} clientes foi zerado no Laboratório.`;
 }

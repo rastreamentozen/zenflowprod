@@ -1,5 +1,5 @@
 // ====================================================================================
-// MOTOR DE IMPORTAÇÃO E FILA GERAL - OMNI-SCAN (BLINDADO)
+// MOTOR DE IMPORTAÇÃO E FILA GERAL - OMNI-SCAN E SLA BLINDADO
 // ====================================================================================
 
 function cadastrarLoteWeb(loteDeClientes) {
@@ -11,13 +11,11 @@ function cadastrarLoteWeb(loteDeClientes) {
 
     const chassisNoSistema = new Set();
     const placasNoSistema = new Set();
-    const nomesNoSistema = new Set(); // Fallback para clientes sem veículo
+    const nomesNoSistema = new Set(); 
     
-    // Regex tolerante para absorver placas sujas do SGA (com espaços, traços, mercosul e antiga)
     const regexPlaca = /^[A-Z]{3}[\s-]?[0-9][A-Z0-9][0-9]{2}$|^[A-Z]{3}[\s-]?[0-9]{4}$/i;
     const regexChassi = /^[A-HJ-NPR-Z0-9]{17}$/i;
 
-    // 1. OMNI-SCAN: Varredura 2D em 100% da Planilha
     ss.getSheets().forEach(aba => {
         const nomeAba = aba.getName().toLowerCase();
         if (nomeAba === "feriados" || nomeAba === "dashboard") return;
@@ -28,10 +26,9 @@ function cadastrarLoteWeb(loteDeClientes) {
 
         const dados = aba.getRange(1, 1, ultimaLinha, ultimaColuna).getValues();
 
-        for (let r = 1; r < dados.length; r++) { // Inicia na linha 1 ignorando o cabeçalho
+        for (let r = 1; r < dados.length; r++) { 
             let linhaTemVeiculo = false;
             
-            // Abordagem A: Busca por Padrão (Independe de qual coluna o usuário colocou o dado)
             for (let c = 0; c < dados[r].length; c++) {
                 let val = String(dados[r][c]).trim().toUpperCase();
                 if (!val) continue;
@@ -48,7 +45,6 @@ function cadastrarLoteWeb(loteDeClientes) {
                 }
             }
 
-            // Abordagem B: Busca Mapeada (Garante o bloqueio caso o regex falhe bizarramente mas a coluna esteja correta)
             if (nomeAba.includes("1") || nomeAba.includes("2") || nomeAba.includes("3") || nomeAba.includes("4") || nomeAba.includes("6") || nomeAba.includes("auditoria") || nomeAba.includes("cancelado")) {
                 let possivelNome = String(dados[r][MAPA_COLUNAS.NOME - 1] || "").trim().toUpperCase();
                 let possivelPlaca = String(dados[r][MAPA_COLUNAS.PLACA - 1] || "").replace(/[^A-Z0-9]/g, '');
@@ -57,7 +53,6 @@ function cadastrarLoteWeb(loteDeClientes) {
                 if (possivelPlaca && possivelPlaca.length >= 6) { placasNoSistema.add(possivelPlaca); linhaTemVeiculo = true; }
                 if (possivelChassi && possivelChassi.length >= 6) { chassisNoSistema.add(possivelChassi); linhaTemVeiculo = true; }
 
-                // Fallback: Se não detectamos nenhum veículo na linha inteira, travamos o cadastro pelo NOME para evitar fantasmas
                 if (!linhaTemVeiculo && possivelNome) {
                     nomesNoSistema.add(possivelNome);
                 }
@@ -96,7 +91,7 @@ function cadastrarLoteWeb(loteDeClientes) {
       const novaLinha = new Array(qtdColunasParaInserir).fill("");
       const novaNota = new Array(qtdColunasParaInserir).fill("");
       
-      novaLinha[0] = cliente.data || dtHojeStr;
+      novaLinha[MAPA_COLUNAS.DATA - 1] = cliente.data || dtHojeStr;
       novaLinha[MAPA_COLUNAS.NOME - 1] = nomeCli;
       novaLinha[MAPA_COLUNAS.PLACA - 1] = placaCli;
       novaLinha[MAPA_COLUNAS.CHASSI - 1] = chassiCli;
@@ -115,20 +110,20 @@ function cadastrarLoteWeb(loteDeClientes) {
       notasPorAba.push(novaNota);
       contInseridos++;
       
-      // Realimentação em Tempo Real (Evita que o usuário copie a mesma linha no SGA e cole 2x no lote atual)
       if (chassiCli) chassisNoSistema.add(chassiCli);
       if (placaCli) placasNoSistema.add(placaCli);
       if (!chassiCli && !placaCli && nomeCli) nomesNoSistema.add(nomeCli);
     });
     
-    // Inserção Otimizada em Batch
     if (lotesPorAba.length > 0) {
-        const nomes = aba1.getRange("C1:C").getValues();
+        // [FIX SÊNIOR]: Lê pela Coluna B (Nome) para achar a linha correta sem pular colunas
+        const nomes = aba1.getRange("B1:B").getValues();
         let ultimaLinhaReal = 1;
         for (let j = nomes.length - 1; j >= 0; j--) {
           if (String(nomes[j][0]).trim() !== "") { ultimaLinhaReal = j + 1; break; }
         }
-        const range = aba1.getRange(ultimaLinhaReal + 1, 2, lotesPorAba.length, qtdColunasParaInserir);
+        // Começa a colar a partir da Coluna A (1)
+        const range = aba1.getRange(ultimaLinhaReal + 1, 1, lotesPorAba.length, qtdColunasParaInserir);
         range.setValues(lotesPorAba);
         range.setNotes(notasPorAba); 
     }
@@ -141,8 +136,12 @@ function cadastrarLoteWeb(loteDeClientes) {
   }
 }
 
-function web_obterFilaGeral() {
-  const ss = SpreadsheetApp.openById(PLANILHA_ID);
+/**
+ * Motor Central de Fila
+ */
+function web_obterFilaGeral(isTeste) {
+  const idPlanilhaParaUso = isTeste === true ? PLANILHA_TESTE_ID : PLANILHA_ID; 
+  const ss = SpreadsheetApp.openById(idPlanilhaParaUso);
   const abas = ss.getSheets().filter(s => s.getName().includes("1 -") || s.getName().includes("2 -") || s.getName().includes("3 -"));
   const fila = [];
   const templatesDict = getTemplatesDict(ss);
@@ -151,7 +150,8 @@ function web_obterFilaGeral() {
   try {
     const abaFeriados = ss.getSheetByName("Feriados");
     if (abaFeriados) {
-      feriadosTime = abaFeriados.getRange("A2:A").getValues().map(r => r[0] instanceof Date ? r[0].getTime() : null).filter(r => r);
+      // Usando formatação string para blindar contra offset de Fuso Horário
+      feriadosTime = abaFeriados.getRange("A2:A").getValues().map(r => r[0] instanceof Date ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), "dd/MM/yyyy") : null).filter(r => r);
     }
   } catch(e) {}
   
@@ -216,6 +216,7 @@ function web_obterFilaGeral() {
 
     for (let i = 1; i < dados.length; i++) {
       const l = dados[i];
+      
       const nome = l[MAPA_COLUNAS.NOME] ? String(l[MAPA_COLUNAS.NOME]).trim() : "";
       const placa = l[MAPA_COLUNAS.PLACA] ? String(l[MAPA_COLUNAS.PLACA]).trim() : "";
       const chassi = l[MAPA_COLUNAS.CHASSI] ? String(l[MAPA_COLUNAS.CHASSI]).trim() : "";
@@ -251,11 +252,14 @@ function web_obterFilaGeral() {
       if (l[MAPA_COLUNAS.DATA] instanceof Date) {
          dPlanilha = l[MAPA_COLUNAS.DATA];
          dataEntradaStr = Utilities.formatDate(dPlanilha, Session.getScriptTimeZone(), "dd/MM/yyyy");
+      } else {
+         const strData = String(l[MAPA_COLUNAS.DATA] || "").split(" ")[0];
+         if (strData && strData.includes("/")) {
+            dataEntradaStr = strData;
+            const partes = strData.split("/");
+            if (partes.length === 3) dPlanilha = new Date(partes[2], partes[1] - 1, partes[0]);
+         }
       }
-
-      let dEmail = null;
-      const valDataEmail = l[MAPA_COLUNAS.DATA_EMAIL];
-      if (valDataEmail instanceof Date) dEmail = valDataEmail;
 
       let diasUteisParaUI = 0; 
       if (dPlanilha && !isNaN(dPlanilha)) {
@@ -264,37 +268,77 @@ function web_obterFilaGeral() {
 
       const telefone = l[MAPA_COLUNAS.TELEFONE] ? String(l[MAPA_COLUNAS.TELEFONE]).trim() : "";
       let msgWhats = "";
+      
       if (telefone) {
         const idVeic = placa || chassi;
+        const isPlural = String(idVeic).includes(",") || String(idVeic).includes(" e ");
         let chaveCorpo = numEtapa === 1 ? (l[MAPA_COLUNAS.FIPE_BAIXA] === true ? "BOAS_VINDAS_FIPE_BAIXA" : "BOAS_VINDAS_NORMAL") : numEtapa === 2 ? "LEMBRETE_5_DIAS" : "PRAZO_EXPIRADO";
-        msgWhats = aplicarTemplate(templatesDict, chaveCorpo, nome || "Cliente", idVeic, false, diasUteisParaUI, 10, dataEntradaStr);
+        
+        let txtCorpo = aplicarTemplate(templatesDict, chaveCorpo, nome || "Cliente", idVeic, isPlural, diasUteisParaUI, 10, dataEntradaStr);
+        let disclaimer = aplicarTemplate(templatesDict, "WHATSAPP_DISCLAIMER", nome || "Cliente", idVeic, false, diasUteisParaUI, 10, dataEntradaStr);
+        msgWhats = (disclaimer && !disclaimer.includes("⚠️")) ? disclaimer + "\n\n" + txtCorpo : txtCorpo;
       }
 
+      // SLA ABSOLUTO (Motor central lendo D0, >5 E2, >10 E3)
+      let etapaSugerida = numEtapa;
+      let isLugarErrado = false;
+      
+      if (dPlanilha && !isNaN(dPlanilha)) {
+          if (diasUteisParaUI >= 11) {
+              etapaSugerida = 3;
+          } else if (diasUteisParaUI >= 6) {
+              etapaSugerida = 2;
+          } else {
+              etapaSugerida = 1;
+          }
+          
+          if (etapaSugerida !== numEtapa) {
+              isLugarErrado = true;
+          }
+      }
+
+      const isEnviadoBol = (l[MAPA_COLUNAS.CHECK_EMAIL] === true || l[MAPA_COLUNAS.CHECK_EMAIL] === "TRUE" || l[MAPA_COLUNAS.CHECK_EMAIL] === 1);
+      const isWhatsEnviadoBol = (l[MAPA_COLUNAS.CHECK_WHATS] === true || l[MAPA_COLUNAS.CHECK_WHATS] === "TRUE" || l[MAPA_COLUNAS.CHECK_WHATS] === 1);
+      
       const keyBusca = placa.replace(/[^A-Z0-9]/g, '') || chassi.toUpperCase();
       const hist = mapHist[keyBusca] ? { ...mapHist[keyBusca] } : { e1: "", e2: "", e3: "" };
+
+      let dataCurrentStr = "";
+      const valDataEmail = l[MAPA_COLUNAS.DATA_EMAIL];
+      if (valDataEmail instanceof Date) dataCurrentStr = Utilities.formatDate(valDataEmail, Session.getScriptTimeZone(), "dd/MM/yyyy");
+      else if (valDataEmail && valDataEmail !== "Aguardando...") dataCurrentStr = String(valDataEmail).split(" ")[0];
+
+      if (numEtapa === 1 && (isEnviadoBol || isWhatsEnviadoBol) && !hist.e1) hist.e1 = dataCurrentStr;
+      if (numEtapa === 2 && (isEnviadoBol || isWhatsEnviadoBol) && !hist.e2) hist.e2 = dataCurrentStr;
+      if (numEtapa === 3 && (isEnviadoBol || isWhatsEnviadoBol) && !hist.e3) hist.e3 = dataCurrentStr;
 
       fila.push({
         idUnico: nomeAba + "-" + (i + 1), 
         etapaNum: numEtapa, linhaOriginal: i + 1, abaNome: nomeAba, nome: nome, placa: placa, chassi: chassi,
         fipe: l[MAPA_COLUNAS.FIPE] ? String(l[MAPA_COLUNAS.FIPE]).trim() : "",
         email: l[MAPA_COLUNAS.EMAIL] ? String(l[MAPA_COLUNAS.EMAIL]).trim() : "",
-        telefone: telefone, estado: l[MAPA_COLUNAS.ESTADO] ? String(l[MAPA_COLUNAS.ESTADO]).trim() : "",
+        telefone: telefone,
+        estado: l[MAPA_COLUNAS.ESTADO] ? String(l[MAPA_COLUNAS.ESTADO]).trim() : "",
         cidade: cidade, bairro: bairro,
-        tecnicoDisp: tecnicoDisp, tecnicoDist: tecnicoDist, tecnicoTempo: tecnicoTempo, tecnicoTipo: tecnicoTipo, 
+        tecnicoDisp: tecnicoDisp, tecnicoDist: tecnicoDist, tecnicoTempo: tecnicoTempo, 
+        tecnicoTipo: tecnicoTipo, 
         dataPlanilha: dataEntradaStr,
         dataEmail: web_formatarDataSegura(l[MAPA_COLUNAS.DATA_EMAIL]),
         dataWhats: web_formatarDataSegura(l[MAPA_COLUNAS.DATA_WHATS]),
-        isEnviado: (l[MAPA_COLUNAS.CHECK_EMAIL] === true),
-        isWhatsEnviado: (l[MAPA_COLUNAS.CHECK_WHATS] === true),
-        isRespondeuEmail: (l[MAPA_COLUNAS.RESPONDEU_EMAIL] === true),
-        isRespondeuWhats: (l[MAPA_COLUNAS.RESPONDEU_WHATS] === true),
-        isFipeBaixa: (l[MAPA_COLUNAS.FIPE_BAIXA] === true),
-        isTecnicoIndisp: (l[MAPA_COLUNAS.TECNICO_INDISPONIVEL] === true),
+        isEnviado: isEnviadoBol,
+        isWhatsEnviado: isWhatsEnviadoBol,
+        isRespondeuEmail: (l[MAPA_COLUNAS.RESPONDEU_EMAIL] === true || l[MAPA_COLUNAS.RESPONDEU_EMAIL] === "TRUE" || l[MAPA_COLUNAS.RESPONDEU_EMAIL] === 1),
+        isRespondeuWhats: (l[MAPA_COLUNAS.RESPONDEU_WHATS] === true || l[MAPA_COLUNAS.RESPONDEU_WHATS] === "TRUE" || l[MAPA_COLUNAS.RESPONDEU_WHATS] === 1),
+        isFipeBaixa: (l[MAPA_COLUNAS.FIPE_BAIXA] === true || l[MAPA_COLUNAS.FIPE_BAIXA] === "TRUE" || l[MAPA_COLUNAS.FIPE_BAIXA] === 1),
+        isTecnicoIndisp: (l[MAPA_COLUNAS.TECNICO_INDISPONIVEL] === true || l[MAPA_COLUNAS.TECNICO_INDISPONIVEL] === "TRUE" || l[MAPA_COLUNAS.TECNICO_INDISPONIVEL] === 1),
         isMoto: notaPlaca.includes("MOTO"),
         isInativo: notaNome.includes("Situação SGA"),
         isErroEmail: notaEmail.includes("Erro:"),
         notaNome: notaNome, notaEmail: notaEmail, mensagemWhatsApp: msgWhats,
-        diasUteisSLA: diasUteisParaUI, etapaSugerida: numEtapa,
+        diasUteisSLA: diasUteisParaUI, 
+        etapaSugerida: etapaSugerida,
+        isLugarErrado: isLugarErrado,
+        alertaSLA: isLugarErrado ? `⚠️ Atenção: Deveria estar na Etapa ${etapaSugerida}` : `✅ Posicionamento Correto`,
         histE1: hist.e1, histE2: hist.e2, histE3: hist.e3 
       });
     }
@@ -302,9 +346,10 @@ function web_obterFilaGeral() {
   return fila;
 }
 
-function web_migrarClientesEtapa(movimentacoes) {
+function web_migrarClientesEtapa(movimentacoes, isTeste) {
   try {
-    const ss = SpreadsheetApp.openById(PLANILHA_ID);
+    const idPlanilhaParaUso = isTeste === true ? PLANILHA_TESTE_ID : PLANILHA_ID;
+    const ss = SpreadsheetApp.openById(idPlanilhaParaUso);
     const abasInfo = {
       1: ss.getSheets().find(s => s.getName().includes("1 -")),
       2: ss.getSheets().find(s => s.getName().includes("2 -")),
@@ -353,7 +398,7 @@ function gatilho_migracaoAutomaticaSLA() {
   try {
     const abaFeriados = ss.getSheetByName("Feriados");
     if (abaFeriados) {
-      feriadosTime = abaFeriados.getRange("A2:A").getValues().map(r => r[0] instanceof Date ? r[0].getTime() : null).filter(r => r);
+      feriadosTime = abaFeriados.getRange("A2:A").getValues().map(r => r[0] instanceof Date ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), "dd/MM/yyyy") : null).filter(r => r);
     }
   } catch(e) {}
 
@@ -373,35 +418,30 @@ function gatilho_migracaoAutomaticaSLA() {
 
       let dBaseSLA = null;
 
-      if (numEtapa === 1) {
-         if (l[MAPA_COLUNAS.DATA] instanceof Date) {
-            dBaseSLA = l[MAPA_COLUNAS.DATA];
-         } else {
-            const strData = String(l[MAPA_COLUNAS.DATA] || "").split(" ")[0];
-            if (strData && strData.includes("/")) {
-                const partes = strData.split("/");
-                if (partes.length === 3) dBaseSLA = new Date(partes[2], partes[1] - 1, partes[0]);
-            }
-         }
-      } else if (numEtapa === 2) {
-         const valDataEmail = l[MAPA_COLUNAS.DATA_EMAIL];
-         if (valDataEmail instanceof Date) {
-            dBaseSLA = valDataEmail;
-         } else {
-            const strData = String(valDataEmail || "").split(" ")[0];
-            if (strData && strData !== "Aguardando..." && strData.includes("/")) {
-                const partes = strData.split("/");
-                if (partes.length === 3) dBaseSLA = new Date(partes[2], partes[1] - 1, partes[0]);
-            }
+      if (l[MAPA_COLUNAS.DATA] instanceof Date) {
+         dBaseSLA = l[MAPA_COLUNAS.DATA];
+      } else {
+         const strData = String(l[MAPA_COLUNAS.DATA] || "").split(" ")[0];
+         if (strData && strData.includes("/")) {
+             const partes = strData.split("/");
+             if (partes.length === 3) dBaseSLA = new Date(partes[2], partes[1] - 1, partes[0]);
          }
       }
 
       if (dBaseSLA && !isNaN(dBaseSLA)) {
          try {
              const diasUteis = calcularDiasUteis(dBaseSLA, dtHoje, feriadosTime);
-             if (diasUteis >= 5) {
+             
+             let etapaIdeal = 1;
+             if (diasUteis >= 11) {
+                 etapaIdeal = 3;
+             } else if (diasUteis >= 6) {
+                 etapaIdeal = 2;
+             }
+
+             if (etapaIdeal > numEtapa) {
                  const idUnico = aba.getName() + "-" + (i + 1);
-                 movimentacoes.push({ idUnico: idUnico, novaEtapa: numEtapa + 1 });
+                 movimentacoes.push({ idUnico: idUnico, novaEtapa: etapaIdeal });
              }
          } catch(e) {}
       }
@@ -409,8 +449,80 @@ function gatilho_migracaoAutomaticaSLA() {
   });
 
   if (movimentacoes.length > 0) {
-    web_migrarClientesEtapa(movimentacoes);
-    return `✅ Migração Automática de SLA concluída! ${movimentacoes.length} clientes movidos de etapa devido à expiração dos 5 dias úteis.`;
+    web_migrarClientesEtapa(movimentacoes, false);
+    return `✅ Migração Automática de SLA concluída! ${movimentacoes.length} clientes movidos para a etapa ideal.`;
   }
-  return "✅ Varredura concluída. Nenhum cliente com SLA expirado hoje.";
+  return "✅ Varredura concluída. Nenhum cliente com SLA atrasado hoje.";
+}
+
+// ====================================================================================
+// VALIDAÇÃO PRÉ-IMPORTAÇÃO OTIMIZADA - STAGING AREA
+// ====================================================================================
+function web_validarLotePreImportacao(loteParsed) {
+  const ss = SpreadsheetApp.openById(PLANILHA_ID);
+  const chassisNoSistema = new Set();
+  const placasNoSistema = new Set();
+
+  const abas = ss.getSheets();
+  abas.forEach(aba => {
+     const nomeAba = aba.getName().toLowerCase();
+     if (nomeAba === "feriados" || nomeAba === "dashboard" || nomeAba.includes("config")) return;
+     
+     const ultimaLinha = aba.getLastRow();
+     if (ultimaLinha < 2) return;
+     const dadosVeiculos = aba.getRange(2, 3, ultimaLinha - 1, 2).getValues();
+     
+     for(let i = 0; i < dadosVeiculos.length; i++) {
+         let placa = String(dadosVeiculos[i][0] || "").replace(/[^A-Z0-9]/g, '');
+         let chassi = String(dadosVeiculos[i][1] || "").trim().toUpperCase();
+         if (placa) placasNoSistema.add(placa);
+         if (chassi) chassisNoSistema.add(chassi);
+     }
+  });
+
+  let feriadosTime = [];
+  try {
+    const abaFeriados = ss.getSheetByName("Feriados");
+    if (abaFeriados) feriadosTime = abaFeriados.getRange("A2:A").getValues().map(r => r[0] instanceof Date ? Utilities.formatDate(r[0], Session.getScriptTimeZone(), "dd/MM/yyyy") : null).filter(r => r);
+  } catch(e) {}
+
+  const dtHoje = new Date();
+  const loteValido = [];
+  let qtdDuplicados = 0;
+
+  loteParsed.forEach((cli, index) => {
+     let p = String(cli.placa || "").replace(/[^A-Z0-9]/g, '');
+     let c = String(cli.chassi || "").toUpperCase();
+
+     if ((p && placasNoSistema.has(p)) || (c && chassisNoSistema.has(c))) {
+         qtdDuplicados++;
+         return; 
+     }
+
+     let partes = String(cli.data).split("/");
+     let diasSLA = 0;
+     let etapaSug = 1;
+     
+     if (partes.length === 3) {
+         let dEntrada = new Date(partes[2], partes[1] - 1, partes[0]);
+         diasSLA = calcularDiasUteis(dEntrada, dtHoje, feriadosTime);
+         if (diasSLA >= 11) etapaSug = 3;
+         else if (diasSLA >= 6) etapaSug = 2;
+     }
+
+     let flags = [];
+     if (!cli.nome || cli.nome === "SEM NOME") flags.push("Nome Ausente");
+     if (!cli.telefone) flags.push("Sem Telefone");
+     if (!cli.email) flags.push("Sem E-mail");
+     
+     cli.diasSLA = diasSLA;
+     cli.etapaSugerida = etapaSug;
+     cli.temDivergencia = flags.length > 0;
+     cli.msgDivergencia = flags.join(" | ");
+     cli.idTemp = "temp_cli_" + index + "_" + new Date().getTime();
+
+     loteValido.push(cli);
+  });
+
+  return { lote: loteValido, duplicados: qtdDuplicados };
 }

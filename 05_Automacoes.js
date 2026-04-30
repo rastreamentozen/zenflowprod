@@ -10,8 +10,10 @@ function processarItemLoteWeb(cli, comando) {
   const aba = ss.getSheetByName(cli.abaNome);
   if (!aba) return { status: 'erro', msg: 'Aba não encontrada.' };
   
-  const vb = String(cli.chassi || cli.placa).replace(/[^A-Za-z0-9]/g, '');
-  const pb = cli.chassi ? "chassi" : "placa";
+  // Lógica corrigida: Prioridade estrita para PLACA
+  const vb = String(cli.placa || cli.chassi).replace(/[^A-Za-z0-9]/g, '');
+  const pb = cli.placa ? "placa" : "chassi";
+  
   const linha = cli.linhaOriginal;
   const dt = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm");
   const codMoto = ["3", "126", "115", "100", "105", "127", "116", "32", "33", "34", "35", "95", "96", "97"];
@@ -61,9 +63,7 @@ function processarItemLoteWeb(cli, comando) {
   }
 
   try {
-    // --------------------------------------------------------------------------------
-    // 1. LÓGICA DE LOGÍSTICA (ROTEIRIZAÇÃO GOOGLE MAPS)
-    // --------------------------------------------------------------------------------
+    // 1. LÓGICA DE LOGÍSTICA
     if (comando === "logistica") {
       let est = String(aba.getRange(linha, MAPA_COLUNAS.ESTADO + 1).getValue()).trim().toUpperCase();
       let celulaEstado = aba.getRange(linha, MAPA_COLUNAS.ESTADO + 1);
@@ -127,12 +127,9 @@ function processarItemLoteWeb(cli, comando) {
       return { status: 'ignorado', msg: 'Endereço incompleto' };
     }
 
-    // --------------------------------------------------------------------------------
-    // 2. BUSCA DE DADOS NA HINOVA (VEÍCULO -> ASSOCIADO)
-    // --------------------------------------------------------------------------------
+    // 2. BUSCA DE DADOS NA HINOVA
     const resp = UrlFetchApp.fetch(`${SGA_CONFIG.URL_CONSULTA_BASE}${vb}/${pb}`, optionsGet);
     
-    // Alerta de API fora do ar ou negando resposta
     if (resp.getResponseCode() !== 200) {
       aba.getRange(linha, MAPA_COLUNAS.NOME + 1).setNote(`⚠️ Falha na rede SGA.\nStatus HTTP: ${resp.getResponseCode()}\nTentado: ${pb.toUpperCase()} = ${vb}`);
       return { status: 'ignorado', msg: `Erro HTTP ${resp.getResponseCode()}` };
@@ -141,7 +138,6 @@ function processarItemLoteWeb(cli, comando) {
     const jsonRaw = JSON.parse(resp.getContentText());
     const v = Array.isArray(jsonRaw) ? jsonRaw[0] : jsonRaw;
     
-    // Alerta de Veículo ainda não existente na Base Hinova no momento da execução
     if (!v || Object.keys(v).length === 0) {
       aba.getRange(linha, MAPA_COLUNAS.NOME + 1).setNote(`⚠️ Veículo não localizado na API da Hinova.\nTentado: ${pb.toUpperCase()} = ${vb}\n(Pode ser atraso de integração do SGA).`);
       return { status: 'ignorado', msg: 'Sem dados na Hinova' };
@@ -149,25 +145,18 @@ function processarItemLoteWeb(cli, comando) {
 
     let alterado = false;
 
-    // --- AUTOMAÇÃO: LOCALIZAÇÃO (ESTADOS) ---
     if (comando === "estados") {
       let estFinal = "N/A", cidFinal = "Não informada", baiFinal = "Não informado";
-      
-      // Tentativa 1: Varredura profunda no próprio objeto do Veículo
       let endVeiculo = extrairEndereco(v);
-      
-      // Fallback ViaCEP se a Hinova só entregou o CEP
       if (endVeiculo.cep) {
         let vCep = buscarViaCep(endVeiculo.cep);
         if (vCep) { endVeiculo.uf = vCep.estado; endVeiculo.cid = vCep.cidade; endVeiculo.bai = vCep.bairro; }
       }
-
       if (endVeiculo.uf && endVeiculo.cid) {
         estFinal = String(endVeiculo.uf).trim().toUpperCase();
         cidFinal = String(endVeiculo.cid).trim();
         baiFinal = String(endVeiculo.bai || "Não informado").trim();
       } else {
-        // Tentativa 2: Buscar pelo Associado usando qualquer chave disponível
         let rotaBusca = "";
         if (v.codigo_associado && v.codigo_associado !== "0") rotaBusca = `${v.codigo_associado}/codigo`;
         else if (v.cpf_associado) rotaBusca = `${String(v.cpf_associado).replace(/\D/g, '')}/cpf`;
@@ -180,12 +169,10 @@ function processarItemLoteWeb(cli, comando) {
             const aD = Array.isArray(jA) ? jA[0] : jA;
             if (aD) {
               let endAssoc = extrairEndereco(aD);
-              
               if (endAssoc.cep) {
                 let aCep = buscarViaCep(endAssoc.cep);
                 if (aCep) { endAssoc.uf = aCep.estado; endAssoc.cid = aCep.cidade; endAssoc.bai = aCep.bairro; }
               }
-              
               if (endAssoc.uf) estFinal = String(endAssoc.uf).trim().toUpperCase();
               if (endAssoc.cid) cidFinal = String(endAssoc.cid).trim();
               if (endAssoc.bai) baiFinal = String(endAssoc.bai).trim();
@@ -200,8 +187,6 @@ function processarItemLoteWeb(cli, comando) {
       }
       alterado = true;
     }
-
-    // --- AUTOMAÇÃO: FIPE BAIXA ---
     else if (comando === "fipe") {
       let valorFipeNum = 0;
       let strFipe = String(v.valor_fipe || "").trim();
@@ -219,8 +204,6 @@ function processarItemLoteWeb(cli, comando) {
       aba.getRange(linha, MAPA_COLUNAS.FIPE_BAIXA + 1).setValue(isBaixa);
       alterado = true;
     }
-
-    // --- DEMAIS AUTOMAÇÕES ---
     else if (comando === "motos") {
       if (codMoto.includes(String(v.codigo_tipo_veiculo))) {
         aba.getRange(linha, 1, 1, aba.getLastColumn()).setBackground("#d1fae5");
@@ -306,8 +289,9 @@ function varrerConcluidosGlobalWeb() {
     const aba = ss.getSheets().find(s => s.getName().includes(f)); if (!aba) return;
     const d = aba.getDataRange().getValues();
     for (let i = d.length - 1; i >= 1; i--) {
-      const vb = d[i][MAPA_COLUNAS.CHASSI] || d[i][MAPA_COLUNAS.PLACA]; if (!vb) continue;
-      const pb = d[i][MAPA_COLUNAS.CHASSI] ? "chassi" : "placa";
+      // Lógica corrigida: Prioridade estrita para PLACA
+      const vb = d[i][MAPA_COLUNAS.PLACA] || d[i][MAPA_COLUNAS.CHASSI]; if (!vb) continue;
+      const pb = d[i][MAPA_COLUNAS.PLACA] ? "placa" : "chassi";
       try {
         const r = UrlFetchApp.fetch(`${SGA_CONFIG.URL_CONSULTA_BASE}${encodeURIComponent(vb)}/${pb}`, { "method": "get", "headers": { "Authorization": "Bearer " + token }, "muteHttpExceptions": true });
         const j = JSON.parse(r.getContentText()); const v = Array.isArray(j) ? j[0] : j;
@@ -329,7 +313,8 @@ function varrerConcluidosSelecionadosWeb(sel) {
   
   const linhasParaDeletar = {};
   sel.forEach(cli => {
-    const vb = cli.chassi || cli.placa, pb = cli.chassi ? "chassi" : "placa";
+    // Lógica corrigida: Prioridade estrita para PLACA
+    const vb = cli.placa || cli.chassi, pb = cli.placa ? "placa" : "chassi";
     try {
       const r = UrlFetchApp.fetch(`${SGA_CONFIG.URL_CONSULTA_BASE}${encodeURIComponent(vb)}/${pb}`, { "method": "get", "headers": { "Authorization": "Bearer " + tok }, "muteHttpExceptions": true });
       const j = JSON.parse(r.getContentText()); const v = Array.isArray(j) ? j[0] : j;

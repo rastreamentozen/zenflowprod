@@ -4,7 +4,9 @@
 
 const PLANILHA_ID = "1wcgYDTH7C9vRuu2CE43WMB1Rh0h9xf3JplTJWqQtsZA";
 const ID_PLANILHA_TECNICOS = "1yrYwyE0iy4aYKHEthMxPF3rOUiygfQkSLqXBzIGtK4I";
+const PLANILHA_TESTE_ID = "1c2_JOsPRbVttvfhxi8qEhpK2xkvrnwY2TbqwRp_xEjo"// Sua nova planilha de testes
 const EMAIL_REMETENTE = "rastreamento@zenseguro.com";
+const EMAIL_TESTE_TRAVA = "rastreamentozen.03@gmail.com";
 
 const MAPA_COLUNAS = {
   DATA: 1, NOME: 2, PLACA: 3, CHASSI: 4, FIPE: 5, EMAIL: 6, TELEFONE: 7,
