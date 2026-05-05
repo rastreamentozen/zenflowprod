@@ -358,15 +358,48 @@
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6 shrink-0"><div class="bg-white dark:bg-darkcard p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder"><h3 class="text-slate-700 dark:text-slate-300 font-bold mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">Evolução Mensal (E-mail vs Whats)</h3><div class="h-72"><canvas id="chartHistorico"></canvas></div></div><div class="bg-white dark:bg-darkcard p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-darkborder"><h3 class="text-slate-700 dark:text-slate-300 font-bold mb-4 border-b border-slate-100 dark:border-slate-700 pb-3">Envios Realizados por Etapa</h3><div class="h-72"><canvas id="chartEnviosEtapa"></canvas></div></div></div>
     </div>
 
-    <div id="tela-cadastro" class="h-full hidden flex-col p-8 overflow-y-auto">
-      <div class="max-w-5xl mx-auto w-full shrink-0">
-        <div class="bg-indigo-600 dark:bg-indigo-700 text-white rounded-t-2xl p-8 shadow-lg"><h2 class="text-3xl font-black mb-2 tracking-tight">🤖 Motor de Importação SGA</h2><p class="text-indigo-100 font-medium">Cole a tabela do Hinova. A Inteligência fatiará as linhas e extrairá a <b>FIPE (R$)</b> se disponível.</p></div>
-        <div class="bg-white dark:bg-darkcard rounded-b-2xl shadow-xl border border-slate-200 dark:border-darkborder p-8 mb-6">
-          <textarea id="txtPastedSGA" class="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-xl p-5 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-300 h-48 mb-5 transition" placeholder="Cole aqui as linhas copiadas do SGA Hinova..."></textarea>
-          <div class="flex justify-end gap-4"><button onclick="limparLote()" class="px-6 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition">Limpar Tela</button><button onclick="processarPastedData()" class="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none hover:bg-indigo-700 transition flex items-center gap-2 transform hover:-translate-y-0.5">🔍 Analisar Texto</button></div>
-        </div>
-             </div>
+<div id="tela-cadastro" class="h-full hidden flex-col p-8 overflow-y-auto">
+  <div class="max-w-5xl mx-auto w-full shrink-0">
+    <div class="bg-indigo-600 dark:bg-indigo-700 text-white rounded-t-2xl p-8 shadow-lg">
+        <h2 class="text-3xl font-black mb-2 tracking-tight">🤖 Motor de Importação SGA</h2>
+        <p class="text-indigo-100 font-medium">Importe o arquivo XLS/HTM do sistema ou cole a tabela do Hinova abaixo. A Inteligência fatiará as linhas, extrairá a <b>FIPE (R$)</b> e evitará duplicidades de chassi ou placa.</p>
     </div>
+    
+    <div class="bg-white dark:bg-darkcard rounded-b-2xl shadow-xl border border-slate-200 dark:border-darkborder p-8 mb-6">
+      
+      <!-- Opção 1: Upload de Arquivo (Design Integrado com Tailwind) -->
+      <div class="mb-6 p-5 bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 rounded-xl">
+          <label class="block text-sm font-bold text-indigo-700 dark:text-indigo-300 mb-3">Opção 1: Importar Arquivo (XLS / HTM)</label>
+          <div class="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+              <input type="file" id="arquivoImportacao" accept=".xls, .htm, .html" class="block w-full text-sm text-slate-500 dark:text-slate-400 file:mr-4 file:py-3 file:px-6 file:rounded-xl file:border-0 file:text-sm file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700 cursor-pointer transition focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+              <button id="btnImportarArquivo" onclick="processarArquivoImportacao()" class="w-full sm:w-auto px-6 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none hover:bg-indigo-700 transition flex items-center justify-center gap-2 whitespace-nowrap transform hover:-translate-y-0.5">
+                  📄 Processar Arquivo
+              </button>
+          </div>
+      </div>
+
+      <div class="flex items-center my-6">
+          <div class="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+          <span class="mx-4 text-slate-400 text-sm font-bold uppercase tracking-wider">OU</span>
+          <div class="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+      </div>
+
+      <!-- Opção 2: Textarea para Colar (Mantendo a sua estrutura) -->
+      <label class="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-3">Opção 2: Colar Tabela do Sistema</label>
+      <textarea id="txtPastedSGA" class="w-full bg-slate-50 dark:bg-slate-900/50 border border-slate-300 dark:border-slate-700 rounded-xl p-5 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-300 h-48 mb-5 transition" placeholder="Cole aqui as linhas copiadas do SGA Hinova..."></textarea>
+      
+      <!-- Caixa de Status Responsiva -->
+      <div id="statusImportacao" class="mb-5 text-sm font-bold hidden px-5 py-4 rounded-xl transition-all duration-300"></div>
+
+      <!-- Botões de Ação do Textarea -->
+      <div class="flex justify-end gap-4">
+          <button onclick="limparLote()" class="px-6 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition">Limpar Tela</button>
+          <button id="btnAnalisarTexto" onclick="processarPastedData()" class="px-8 py-3 bg-indigo-600 text-white font-bold rounded-xl shadow-lg shadow-indigo-200 dark:shadow-none hover:bg-indigo-700 transition flex items-center gap-2 transform hover:-translate-y-0.5">🔍 Analisar Texto Colado</button>
+      </div>
+
+    </div>
+  </div>
+</div>
 
     <div id="tela-tecnicos" class="h-full hidden flex-col p-8 overflow-hidden">
       <div class="flex justify-between items-center mb-6 shrink-0">
@@ -496,5 +529,6 @@
   </div>
   
   <?!= include('Scripts'); ?>
+ 
 </body>
 </html>

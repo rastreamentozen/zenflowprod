@@ -1,0 +1,298 @@
+<!-- Arquivo: Componente_Importacao.html -->
+<style>
+  /* Estilização moderna, responsiva e com foco em usabilidade */
+  .upload-module {
+    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    background: #ffffff;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    padding: 24px;
+    max-width: 600px;
+    margin: 20px auto;
+    transition: all 0.3s ease;
+  }
+
+  .upload-header h3 {
+    margin-top: 0;
+    color: #333;
+    font-size: 1.25rem;
+  }
+
+  .upload-header p {
+    color: #666;
+    font-size: 0.9rem;
+    margin-bottom: 20px;
+  }
+
+  .drop-zone {
+    border: 2px dashed #007bff;
+    border-radius: 8px;
+    padding: 40px 20px;
+    text-align: center;
+    background-color: #f8fbff;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s;
+  }
+
+  .drop-zone.dragover {
+    background-color: #e0efff;
+    border-color: #0056b3;
+  }
+
+  .drop-zone input[type="file"] {
+    display: none;
+  }
+
+  .drop-zone .icon {
+    font-size: 32px;
+    color: #007bff;
+    margin-bottom: 10px;
+    display: block;
+  }
+
+  .btn-import {
+    width: 100%;
+    padding: 12px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    font-size: 1rem;
+    font-weight: bold;
+    cursor: pointer;
+    margin-top: 20px;
+    transition: background-color 0.2s;
+  }
+
+  .btn-import:hover {
+    background-color: #0056b3;
+  }
+
+  .btn-import:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+  }
+
+  .feedback-area {
+    margin-top: 15px;
+    font-size: 0.9rem;
+    padding: 10px;
+    border-radius: 4px;
+    display: none;
+  }
+
+  .feedback-area.success {
+    background-color: #d4edda;
+    color: #155724;
+    border: 1px solid #c3e6cb;
+    display: block;
+  }
+
+  .feedback-area.error {
+    background-color: #f8d7da;
+    color: #721c24;
+    border: 1px solid #f5c6cb;
+    display: block;
+  }
+
+  .feedback-area.info {
+    background-color: #e2e3e5;
+    color: #383d41;
+    border: 1px solid #d6d8db;
+    display: block;
+  }
+</style>
+
+<div class="upload-module">
+  <div class="upload-header">
+    <h3>Importação de Relatório</h3>
+    <p>Selecione ou arraste o arquivo oculto (.htm / .html) contendo os dados.</p>
+  </div>
+  
+  <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+    <span class="icon">📁</span>
+    <span id="dropZoneText">Clique para selecionar ou arraste o arquivo aqui</span>
+    <input type="file" id="fileInput" accept=".htm, .html" onchange="handleFileSelect(event)">
+  </div>
+
+  <button class="btn-import" id="btnProcessar" onclick="iniciarProcessamento()" disabled>Analisar e Importar Dados</button>
+  
+  <div id="feedbackMensagem" class="feedback-area"></div>
+</div>
+
+<script>
+  // Armazena os dados processados no escopo do componente
+  let dadosExtraidos = [];
+
+  // Feedback Visual
+  function mostrarFeedback(mensagem, tipo) {
+    const fb = document.getElementById('feedbackMensagem');
+    fb.className = 'feedback-area ' + tipo;
+    fb.innerHTML = mensagem;
+  }
+
+  // Manipulação do arrastar e soltar
+  const dropZone = document.getElementById('dropZone');
+  
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+
+  dropZone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) {
+      document.getElementById('fileInput').files = e.dataTransfer.files;
+      handleFileSelect({ target: document.getElementById('fileInput') });
+    }
+  });
+
+  // Manipulação da seleção do arquivo
+  function handleFileSelect(event) {
+    const file = event.target.files[0];
+    const btnProcessar = document.getElementById('btnProcessar');
+    
+    if (!file) {
+      document.getElementById('dropZoneText').innerText = "Clique para selecionar ou arraste o arquivo aqui";
+      btnProcessar.disabled = true;
+      return;
+    }
+
+    // Validação de extensão
+    if (!file.name.toLowerCase().endsWith('.htm') && !file.name.toLowerCase().endsWith('.html')) {
+      mostrarFeedback("Formato inválido. Por favor, forneça um arquivo .htm ou .html.", "error");
+      event.target.value = '';
+      btnProcessar.disabled = true;
+      return;
+    }
+
+    document.getElementById('dropZoneText').innerText = file.name;
+    mostrarFeedback("Arquivo carregado. Clique em 'Analisar e Importar' para processar.", "info");
+    btnProcessar.disabled = false;
+  }
+
+  // Processamento e Parseamento do HTML/HTM
+  function iniciarProcessamento() {
+    const file = document.getElementById('fileInput').files[0];
+    if (!file) return;
+
+    const btnProcessar = document.getElementById('btnProcessar');
+    btnProcessar.disabled = true;
+    btnProcessar.innerText = "Analisando arquivo...";
+    mostrarFeedback("Efetuando a leitura do arquivo e validando os dados. Aguarde...", "info");
+
+    const reader = new FileReader();
+    
+    reader.onload = function(e) {
+      try {
+        const conteudo = e.target.result;
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(conteudo, 'text/html');
+        
+        const tabela = doc.querySelector('table');
+        if (!tabela) {
+          throw new Error("Nenhuma tabela foi encontrada no arquivo enviado.");
+        }
+
+        const linhas = tabela.querySelectorAll('tr');
+        if (linhas.length < 2) {
+          throw new Error("A tabela está vazia ou não possui dados suficientes.");
+        }
+
+        // Detecta dinamicamente a posição das colunas no cabeçalho
+        const cabecalho = Array.from(linhas[0].querySelectorAll('th, td')).map(td => td.innerText.trim().toUpperCase());
+        const idxPlaca = cabecalho.findIndex(txt => txt.includes('PLACA'));
+        const idxChassi = cabecalho.findIndex(txt => txt.includes('CHASSI'));
+
+        if (idxPlaca === -1 || idxChassi === -1) {
+          throw new Error("Não foi possível localizar as colunas de 'PLACA' ou 'CHASSI' no arquivo.");
+        }
+
+        dadosExtraidos = [];
+        let errosValidacao = 0;
+
+        // Expressões Regulares para validação primária de formato
+        const regexPlaca = /^[A-Z]{3}[0-9][A-Z0-9][0-9]{2}$/i; // Aceita padrão antigo e Mercosul
+        const regexChassi = /^[A-Z0-9]{17}$/i;
+
+        for (let i = 1; i < linhas.length; i++) {
+          const colunas = linhas[i].querySelectorAll('td');
+          if (colunas.length <= Math.max(idxPlaca, idxChassi)) continue;
+
+          let placa = colunas[idxPlaca].innerText.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+          let chassi = colunas[idxChassi].innerText.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+          // Ignora linhas totalmente vazias
+          if(!placa && !chassi) continue;
+
+          // Validação de entrada
+          if (!regexPlaca.test(placa) || !regexChassi.test(chassi)) {
+            errosValidacao++;
+            continue; // Pula as entradas inválidas ou com formatação corrompida
+          }
+
+          dadosExtraidos.push({
+            placa: placa,
+            chassi: chassi
+            // Você pode adicionar mapeamentos adicionais aqui usando a variável 'cabecalho'
+          });
+        }
+
+        if (dadosExtraidos.length === 0) {
+          throw new Error(`Nenhum dado válido encontrado. Registros ignorados por erro de formato: ${errosValidacao}`);
+        }
+
+        enviarParaBackend(errosValidacao);
+
+      } catch (err) {
+        mostrarFeedback(err.message, "error");
+        btnProcessar.disabled = false;
+        btnProcessar.innerText = "Analisar e Importar Dados";
+      }
+    };
+
+    reader.onerror = function() {
+      mostrarFeedback("Erro ao tentar ler o arquivo.", "error");
+      btnProcessar.disabled = false;
+      btnProcessar.innerText = "Analisar e Importar Dados";
+    };
+
+    // Lê o conteúdo do HTM/HTML como texto estruturado
+    reader.readAsText(file);
+  }
+
+  // Envio dos dados higienizados para o Google Apps Script
+  function enviarParaBackend(errosValidacaoMensagem) {
+    const btnProcessar = document.getElementById('btnProcessar');
+    btnProcessar.innerText = "Sincronizando com o Banco de Dados...";
+    
+    google.script.run
+      .withSuccessHandler(function(resposta) {
+        btnProcessar.disabled = false;
+        btnProcessar.innerText = "Analisar e Importar Dados";
+        document.getElementById('fileInput').value = '';
+        document.getElementById('dropZoneText').innerText = "Clique para selecionar ou arraste o arquivo aqui";
+
+        if (resposta.sucesso) {
+          let msg = `<strong>Sucesso!</strong> ${resposta.importados} novos registros foram inseridos.`;
+          if (resposta.duplicados > 0) msg += `<br>${resposta.duplicados} registros foram ignorados (duplicados).`;
+          if (errosValidacaoMensagem > 0) msg += `<br>${errosValidacaoMensagem} registros ignorados por formato inválido no arquivo.`;
+          mostrarFeedback(msg, "success");
+        } else {
+          mostrarFeedback("Falha no servidor: " + resposta.erro, "error");
+        }
+      })
+      .withFailureHandler(function(erro) {
+        btnProcessar.disabled = false;
+        btnProcessar.innerText = "Analisar e Importar Dados";
+        mostrarFeedback("Erro de comunicação com o servidor: " + erro.message, "error");
+      })
+      .processarImportacaoLote(dadosExtraidos);
+  }
+</script>
